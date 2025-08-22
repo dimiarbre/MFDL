@@ -4,3 +4,5 @@ networkx
 matplotlib
 seaborn
 numpy
+pytest
+opacus

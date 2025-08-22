@@ -1,15 +1,26 @@
+import time
+import warnings
 from typing import Any, Callable, Dict
 
 import matplotlib.pyplot as plt
 import networkx as nx
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data as data
+from mfdl_optimizer import MFDLSGD
+from opacus import GradSampleModule
 from sklearn.datasets import fetch_california_housing
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+
+# Remove warnings for Housing that should be safe, raised because of Opacus + Housing
+warnings.filterwarnings(
+    "ignore",
+    message="Full backward hook is firing when gradients are computed with respect to module outputs since no inputs require gradients.",
+)
 
 
 # Simple MLP for regression
@@ -24,23 +35,30 @@ class HousingMLP(nn.Module):
 
 def learning_step(
     models: list,
+    nb_micro_batches: int,
     optimizers: list,
     data_iters: list,
+    dataloaders: list,
     device: torch.device = torch.device("cpu"),
 ):
     # Local update
     for node, model in enumerate(models):
-        optimizer = optimizers[node]
-        try:
-            batch = next(data_iters[node])
-        except StopIteration:
-            continue  # skip if no more data
-        x, y = batch
-        x, y = x.to(device), y.to(device)
-        optimizer.zero_grad()
-        pred = model(x).squeeze()
-        loss = nn.functional.mse_loss(pred, y)
-        loss.backward()
+        optimizer: MFDLSGD = optimizers[node]
+        for _ in range(nb_micro_batches):
+            try:
+                batch = next(data_iters[node])
+            except StopIteration:
+                data_iters[node] = iter(
+                    dataloaders[node]
+                )  # Reset the current dataloader.
+                batch = next(data_iters[node])
+            x, y = batch
+            x, y = x.to(device), y.to(device)
+            optimizer.zero_microbatch_grad()
+            pred = model(x).squeeze()
+            loss = nn.functional.mse_loss(pred, y)
+            loss.backward()
+            optimizer.microbatch_step()
         optimizer.step()
 
 
@@ -72,21 +90,36 @@ def average_step(graph, models):
 def run_decentralized_training(
     graph: nx.Graph,
     num_steps: int,
+    C: np.ndarray,
+    nb_micro_batches: int,
     trainloaders: list[data.DataLoader],
     testloader: data.DataLoader,
     input_dim: int,
     device: torch.device = torch.device("cpu"),
 ):
     num_nodes = graph.number_of_nodes()
-    models = [HousingMLP(input_dim).to(device) for _ in range(num_nodes)]
-    optimizers = [optim.Adam(models[i].parameters(), lr=1e-2) for i in range(num_nodes)]
+    models = [
+        GradSampleModule(HousingMLP(input_dim)).to(device) for _ in range(num_nodes)
+    ]
+    # optimizers = [optim.Adam(models[i].parameters(), lr=1e-2) for i in range(num_nodes)]
+    optimizers = [
+        MFDLSGD(models[i].parameters(), C=C, C_sens=1, lr=1e-2, device=device)
+        for i in range(num_nodes)
+    ]
     data_iters = [iter(trainloaders[i]) for i in range(num_nodes)]
 
     test_losses: list[list[float]] = [[] for _ in range(num_nodes)]
 
     for step in range(num_steps):
         print(f"Step {step + 1:>{len(str(num_steps))}}/{num_steps}", end="\r")
-        learning_step(models, optimizers, data_iters, device)
+        learning_step(
+            models,
+            nb_micro_batches=nb_micro_batches,
+            optimizers=optimizers,
+            data_iters=data_iters,
+            dataloaders=trainloaders,
+            device=device,
+        )
         average_step(graph, models)
         step_losses = evaluate_models(models, testloader, device)
         for node_id, loss in enumerate(step_losses):
@@ -140,32 +173,50 @@ def evaluate_models(models: list, dataloader, device):
         targets = torch.cat(targets).numpy()
         mse = mean_squared_error(targets, preds)
         mse_list.append(mse)
+        model.train()
     return mse_list
 
 
 def main():
+    G: nx.Graph
+
+    # G: nx.Graph = nx.cycle_graph(5)
     # G: nx.Graph = nx.cycle_graph(20)
-    G = nx.empty_graph(
-        20
-    )  # Identity graph: each node only connected to itself (no communication)
+
+    G: nx.Graph = nx.empty_graph(5)
+    # G: nx.Graph = nx.empty_graph(
+    #     20
+    # )  # Identity graph: each node only connected to itself (no communication)
+
+    # G: nx.Graph = nx.cycle_graph(100)
 
     G.add_edges_from(
-        [(i, i) for i in range(20)]
+        [(i, i) for i in range(G.number_of_nodes())]
     )  # Always keep this to make a useful graph
     input_dim = 8  # California housing dataset
     num_steps = 100
+    micro_batches_size = 100
+    nb_micro_batches = 5
 
     n = G.number_of_nodes()
-    trainloaders, testloader = load_housing(n)
+    trainloaders, testloader = load_housing(n, batch_size=micro_batches_size)
+    print([len(loader) for loader in trainloaders])
 
+    C_LDP = np.identity(num_steps)
+
+    start_time = time.time()
     models, train_losses = run_decentralized_training(
         G,
         num_steps=num_steps,
+        C=C_LDP,
+        nb_micro_batches=nb_micro_batches,
         trainloaders=trainloaders,
         testloader=testloader,
         input_dim=input_dim,
         device=torch.device("cuda"),
     )
+    elapsed_time = time.time() - start_time
+    print(f"Training took {elapsed_time:.2f} seconds.")
 
     plt.figure()
     for node_id in range(len(models)):
