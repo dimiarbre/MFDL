@@ -1,3 +1,7 @@
+import concurrent.futures
+import functools
+import multiprocessing
+import os
 import time
 import warnings
 from typing import Any, Callable, Dict
@@ -45,7 +49,7 @@ def learning_step(
     dataloaders: list,
     device: torch.device = torch.device("cpu"),
 ):
-    global NB_RESETS
+    nb_resets = 0
     # Local update
     for node, model in enumerate(models):
         optimizer: MFDLSGD = optimizers[node]
@@ -58,7 +62,7 @@ def learning_step(
                 )  # Reset the current dataloader.
                 batch = next(data_iters[node])
                 if node == 0:
-                    NB_RESETS += 1
+                    nb_resets += 1
             x, y = batch
             x, y = x.to(device), y.to(device)
             optimizer.zero_microbatch_grad()
@@ -71,6 +75,7 @@ def learning_step(
             loss.backward()
             optimizer.microbatch_step()
         optimizer.step()
+    return nb_resets
 
 
 def average_step(graph, models):
@@ -108,8 +113,7 @@ def run_decentralized_training(
     input_dim: int,
     device: torch.device = torch.device("cpu"),
 ):
-    global NB_RESETS
-    NB_RESETS = 0
+    nb_resets = 0
     num_nodes = graph.number_of_nodes()
     models = [
         GradSampleModule(HousingMLP(input_dim)).to(device) for _ in range(num_nodes)
@@ -135,7 +139,7 @@ def run_decentralized_training(
 
     for step in range(num_steps):
         print(f"Step {step + 1:>{len(str(num_steps))}}/{num_steps}", end="\r")
-        learning_step(
+        nb_resets += learning_step(
             models,
             nb_micro_batches=micro_batches_per_epoch,
             optimizers=optimizers,
@@ -154,7 +158,9 @@ def run_decentralized_training(
     return models, res_test_losses
 
 
-def split_data(X, y, total_nodes: int, batch_size) -> list[data.DataLoader]:
+def split_data(
+    X, y, total_nodes: int, batch_size, generator: torch.Generator
+) -> list[data.DataLoader]:
     idx = torch.arange(len(X))
 
     dataloaders = []
@@ -162,7 +168,14 @@ def split_data(X, y, total_nodes: int, batch_size) -> list[data.DataLoader]:
         # Simple partition: split by node_id
         node_idx = idx[node_id::total_nodes]
         ds = data.TensorDataset(X[node_idx], y[node_idx])
-        dataloaders.append(data.DataLoader(ds, batch_size=batch_size, shuffle=True))
+        dataloaders.append(
+            data.DataLoader(
+                ds,
+                batch_size=batch_size,
+                shuffle=True,
+                generator=generator,
+            )
+        )
     # Ensure all dataloaders have the same number of batches
     min_len = min(len(dl) for dl in dataloaders)
     for i, dl in enumerate(dataloaders):
@@ -175,30 +188,40 @@ def split_data(X, y, total_nodes: int, batch_size) -> list[data.DataLoader]:
                 data.TensorDataset(ds.tensors[0][:keep_n], ds.tensors[1][:keep_n]),
                 batch_size=batch_size,
                 shuffle=True,
-                pin_memory=True,
+                generator=generator,
+                # pin_memory=True,
                 # num_workers=4,
             )
     return dataloaders
 
 
 def load_housing(
-    total_nodes, test_fraction=0.2, train_batch_size=32, test_batch_size=4096
+    total_nodes, test_fraction=0.2, train_batch_size=32, test_batch_size=4096, seed=421
 ):
+    g = torch.Generator()
+    g.manual_seed(seed)
     dataset = fetch_california_housing()
     X = torch.tensor(StandardScaler().fit_transform(dataset.data), dtype=torch.float32)
     y = torch.tensor(dataset.target, dtype=torch.float32)
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_fraction)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_fraction, random_state=seed
+    )
     train_dataloaders = split_data(
-        X=X_train, y=y_train, total_nodes=total_nodes, batch_size=train_batch_size
+        X=X_train,
+        y=y_train,
+        total_nodes=total_nodes,
+        batch_size=train_batch_size,
+        generator=g,
     )
 
     test_dataloader = data.DataLoader(
         data.TensorDataset(X_test, y_test),
         batch_size=test_batch_size,
         shuffle=True,
-        pin_memory=True,
-        num_workers=4,
+        generator=g,
+        # pin_memory=True,
+        # num_workers=4,
     )
 
     return train_dataloaders, test_dataloader
@@ -234,10 +257,51 @@ def expander_graph(n, d):
     return G
 
 
+def run_simulation(
+    args,
+    G: nx.Graph,
+    num_steps,
+    micro_batches_per_epoch,
+    input_dim,
+    device_name: str,
+    nb_micro_batches,
+    dataloader_seed,
+    micro_batches_size,
+):
+    device = torch.device(device_name)
+    n = G.number_of_nodes()
+    trainloaders, testloader = load_housing(
+        n, train_batch_size=micro_batches_size, seed=dataloader_seed
+    )
+    name, C = args
+    print(f"Running simulation for {name} (PID: {os.getpid()})")
+    sens = compute_sensitivity(
+        C,
+        participation_interval=nb_micro_batches // micro_batches_per_epoch,
+        num_epochs=num_steps,
+    )
+    print(f"sens²(C_{name}) = {sens**2}")
+
+    start_time = time.time()
+    _, test_losses = run_decentralized_training(
+        G,
+        num_steps=num_steps,
+        C=C,
+        micro_batches_per_epoch=micro_batches_per_epoch,
+        trainloaders=trainloaders,
+        testloader=testloader,
+        input_dim=input_dim,
+        device=device,
+    )
+    elapsed_time = time.time() - start_time
+    print(f"{name}: Training took {elapsed_time:.2f} seconds.")
+    return name, test_losses
+
+
 def main():
     G: nx.Graph
-
-    device = torch.device("cuda")
+    device_name = "cpu"
+    device = torch.device(device_name)
     print(f"Device : {device}")
 
     n = 100
@@ -252,13 +316,14 @@ def main():
         [(i, i) for i in range(G.number_of_nodes())]
     )  # Always keep this to make a useful graph
     input_dim = 8  # California housing dataset
-    num_repetition = 20  # Nb of full pass over the data
+    num_repetition = 100  # Nb of full pass over the data
     micro_batches_size = 50
-    micro_batches_per_epoch = 1
+    micro_batches_per_epoch = 2
 
     n = G.number_of_nodes()
-    trainloaders, testloader = load_housing(n, train_batch_size=micro_batches_size)
+    trainloaders, _ = load_housing(n, train_batch_size=micro_batches_size)
     nb_micro_batches = [len(loader) for loader in trainloaders]
+    print(nb_micro_batches)
     assert np.all(np.array(nb_micro_batches) == np.min(nb_micro_batches))
     nb_micro_batches = np.min(nb_micro_batches)
 
@@ -271,32 +336,32 @@ def main():
 
     all_test_losses = {}
     plt.figure()
-    for name, C in [
+
+    configs = [
         ("Unnoised baseline", C_NONOISE),
         ("LDP", C_LDP),
         ("ANTIPGD", C_ANTIPGD),
-    ]:
-        print(f"Running simulation for {name}")
-        sens = compute_sensitivity(
-            C,
-            participation_interval=nb_micro_batches // micro_batches_per_epoch,
-            num_epochs=num_steps,
-        )
-        print(f"sens²(C_{name}) = {sens**2}")
+    ]
 
-        start_time = time.time()
-        _, all_test_losses[name] = run_decentralized_training(
-            G,
-            num_steps=num_steps,
-            C=C,
-            micro_batches_per_epoch=micro_batches_per_epoch,
-            trainloaders=trainloaders,
-            testloader=testloader,
-            input_dim=input_dim,
-            device=device,
-        )
-        elapsed_time = time.time() - start_time
-        print(f"Training took {elapsed_time:.2f} seconds.")
+    # Use ProcessPoolExecutor for true parallelism with PyTorch
+    run_sim_args = {
+        "G": G,
+        "num_steps": num_steps,
+        "micro_batches_per_epoch": micro_batches_per_epoch,
+        "input_dim": input_dim,
+        "device_name": device_name,
+        "nb_micro_batches": nb_micro_batches,
+        "dataloader_seed": 421,
+        "micro_batches_size": micro_batches_size,
+    }
+    run_simulation_partial = functools.partial(run_simulation, **run_sim_args)
+
+    context = multiprocessing.get_context("spawn")
+    with concurrent.futures.ProcessPoolExecutor(mp_context=context) as executor:
+        results = list(executor.map(run_simulation_partial, configs))
+
+    for name, test_losses in results:
+        all_test_losses[name] = test_losses
 
     for name, test_losses in all_test_losses.items():
         # Plot the min and max
