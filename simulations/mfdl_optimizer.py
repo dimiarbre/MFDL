@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from torch.optim import Optimizer
+from workloads_generator import compute_sensitivity
 
 
 class MFDLSGD(Optimizer):
@@ -8,19 +9,20 @@ class MFDLSGD(Optimizer):
         self,
         params,
         C,  # Correlation matrix, such that A = BC.
-        C_sens,
+        participation_interval,
+        C_sens=None,
+        id=0,
         lr=1e-3,
         l2_norm_clip=1,
         noise_multiplier=1,
         batch_size=500,
-        iterations_number=100,
-        b_min_sep=10,
         device: torch.device = torch.device("cpu"),
     ):
         # Initialize parameters
         defaults = dict(lr=lr)
         super(MFDLSGD, self).__init__(params, defaults)
         self.device = device
+        self.id = id
 
         """ Differential privacy parameters """
         self.l2_norm_clip = l2_norm_clip
@@ -29,16 +31,23 @@ class MFDLSGD(Optimizer):
         self.batch_size = batch_size
 
         """ Multi-Epoch participation"""
-        self.iterations_number = iterations_number
-        self.b_min_sep = b_min_sep
-        self.k = (self.iterations_number + self.b_min_sep - 1) // self.b_min_sep
+        self.participation_interval = participation_interval
 
         """ Matrix Factorization"""
-        # self.C = C
-        self.C_sens = C_sens
-        self.Cinv = torch.linalg.pinv(
-            torch.tensor(C).to(device=self.device)
-        )  # Used for correlation
+        self.C = C
+        if C_sens is None:
+            self.C_sens = compute_sensitivity(
+                self.C,
+                participation_interval=self.participation_interval,
+                num_epochs=len(C),  # TODO: Change this if C becomes between nodes
+            )
+        else:
+            self.C_sens = C_sens
+        C_tensor = torch.tensor(C).to(device=self.device)
+        self.Cinv = torch.linalg.pinv(C_tensor)  # Used for correlation
+        # Set very small values to zero
+        self.Cinv[torch.abs(self.Cinv) < 1e-15] = 0
+        # print(self.Cinv)
 
         # Calculate the total number of trainable parameters
         self.num_trainable_params = sum(
@@ -61,16 +70,8 @@ class MFDLSGD(Optimizer):
             size=(self.Cinv.shape[-1], self.num_trainable_params),
             device=device,
         )
-        print(f"Noise variance: {self.noise_variance}")
-
-        # Noise variance should be along those lines
-        # new_noise = (
-        #     self.l2_norm_clip
-        #     * self.C_sens
-        #     * self.noise_multiplier
-        #     * torch.randn_like(grads, device=self.device)
-        #     / self.batch_size
-        # )
+        if self.id == 0:
+            print(f"Noise variance: {self.noise_variance}")
 
         param_dtype = next(
             p.dtype
