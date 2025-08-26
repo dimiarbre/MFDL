@@ -176,6 +176,7 @@ def split_data(X, y, total_nodes: int, batch_size) -> list[data.DataLoader]:
                 batch_size=batch_size,
                 shuffle=True,
                 pin_memory=True,
+                # num_workers=4,
             )
     return dataloaders
 
@@ -197,6 +198,7 @@ def load_housing(
         batch_size=test_batch_size,
         shuffle=True,
         pin_memory=True,
+        num_workers=4,
     )
 
     return train_dataloaders, test_dataloader
@@ -235,7 +237,7 @@ def expander_graph(n, d):
 def main():
     G: nx.Graph
 
-    device = torch.device("gpu")
+    device = torch.device("cuda")
     print(f"Device : {device}")
 
     n = 100
@@ -251,8 +253,8 @@ def main():
     )  # Always keep this to make a useful graph
     input_dim = 8  # California housing dataset
     num_repetition = 20  # Nb of full pass over the data
-    micro_batches_size = 10
-    micro_batches_per_epoch = 5
+    micro_batches_size = 50
+    micro_batches_per_epoch = 1
 
     n = G.number_of_nodes()
     trainloaders, testloader = load_housing(n, train_batch_size=micro_batches_size)
@@ -262,13 +264,18 @@ def main():
 
     num_steps = num_repetition * (nb_micro_batches // micro_batches_per_epoch)
 
+    # Here, we only consider "local" correlations, hence nb_nodes = 1.
+    C_NONOISE = np.zeros((num_steps, num_steps))
     C_LDP = workloads_generator.MF_LDP(nb_nodes=1, nb_iterations=num_steps)
-
     C_ANTIPGD = workloads_generator.MF_ANTIPGD(nb_nodes=1, nb_iterations=num_steps)
 
     all_test_losses = {}
     plt.figure()
-    for name, C in [("LDP", C_LDP), ("ANTIPGD", C_ANTIPGD)]:
+    for name, C in [
+        ("Unnoised baseline", C_NONOISE),
+        ("LDP", C_LDP),
+        ("ANTIPGD", C_ANTIPGD),
+    ]:
         print(f"Running simulation for {name}")
         sens = compute_sensitivity(
             C,
@@ -304,6 +311,7 @@ def main():
         plt.fill_between(range(num_steps), min_loss, max_loss, alpha=0.2, color=color)
 
     plt.legend()
+    plt.grid()
 
     plt.title("Test losses per model")
     plt.xlabel("Communication rounds")

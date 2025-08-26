@@ -44,9 +44,13 @@ class MFDLSGD(Optimizer):
         else:
             self.C_sens = C_sens
         C_tensor = torch.tensor(C).to(device=self.device)
-        self.Cinv = torch.linalg.pinv(C_tensor)  # Used for correlation
-        # Set very small values to zero
-        self.Cinv[torch.abs(self.Cinv) < 1e-15] = 0
+        if np.allclose(self.C, 0):  # Unnoised baseline: we won't add any noise.
+            self.Cinv = C_tensor.T
+            self.C_sens = 0  # Will generate noises of sensitivity 0
+        else:
+            self.Cinv = torch.linalg.pinv(C_tensor)  # Used for correlation
+            # Set very small values to zero
+            self.Cinv[torch.abs(self.Cinv) < 1e-15] = 0
         # print(self.Cinv)
 
         # Calculate the total number of trainable parameters

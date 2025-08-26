@@ -41,6 +41,10 @@ def build_participation_matrix(num_epochs: int, participation_interval: int):
 def compute_sensitivity(
     C: np.ndarray, participation_interval: int, num_epochs: int
 ) -> float:
+    # Check if C is the zero matrix
+    if np.allclose(C, 0):
+        return np.inf
+
     X = C.T @ C
 
     if np.all(X >= 0):
