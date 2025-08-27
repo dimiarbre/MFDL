@@ -11,23 +11,7 @@ from typing import Optional
 
 import numpy as np
 import scipy
-import workloads_generator
-
-
-def get_orthogonal_mask(n: int, epochs: int = 1) -> np.ndarray:
-    """Computes a mask that imposes orthogonality constraints on the optimization.
-
-    Args:
-        n: the size of the mask
-        epochs: The number of epochs
-
-    Returns:
-        A 0/1 mask
-    """
-    mask = np.ones((n, n))
-    for i in range(n // epochs):
-        mask[i :: n // epochs, i :: n // epochs] = np.eye(epochs)
-    return mask
+import utils
 
 
 def initialize_X_to_normalized_identity(
@@ -59,14 +43,6 @@ def _permute_lower_triangle(h_lower: np.ndarray) -> np.ndarray:
     return perm @ h_lower @ perm.T
 
 
-def check_positive_definite(matrix):
-    eigvals = np.linalg.eigvalsh(matrix)
-    if np.any(eigvals < -1e-8):
-        return False
-    else:
-        return True
-
-
 def termination_fn(dX, min_norm):
     return np.abs(dX).max() <= min_norm
 
@@ -82,7 +58,7 @@ class MatrixFatorizer:
         self.nb_steps = self.workload_matrix.shape[0]
         self.nb_epochs = nb_epochs
         self.equal_norm = equal_norm
-        self.mask = get_orthogonal_mask(self.nb_steps, self.nb_epochs)
+        self.mask = utils.get_orthogonal_mask(self.nb_steps, self.nb_epochs)
 
     def project_update(self, dX: np.ndarray) -> np.ndarray:
         """Project dX so that X + alpha*dX satisfies constraints for any alpha.
@@ -227,6 +203,7 @@ if __name__ == "__main__":
 
     assert np.allclose(workload, B_optimized @ C_optimized)
 
+    # C_optimized = np.linalg.pinv(C_optimized)
     plt.imshow(C_optimized, cmap="bwr")
     plt.clim(-np.abs(C_optimized).max(), np.abs(C_optimized).max())
     plt.colorbar()

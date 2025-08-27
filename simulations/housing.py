@@ -21,6 +21,7 @@ from sklearn.datasets import fetch_california_housing
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from utils import get_communication_matrix, get_graph
 from workloads_generator import compute_sensitivity
 
 # Remove warnings for Housing that should be safe, raised because of Opacus + Housing
@@ -249,16 +250,6 @@ def evaluate_models(models: list, dataloader, device):
     return mse_list
 
 
-def expander_graph(n, d):
-    if d < n:
-        G = nx.random_regular_graph(d, n)
-    else:
-        raise ValueError(
-            "Degree d must be less than number of nodes n for a regular graph."
-        )
-    return G
-
-
 def run_simulation(
     args,
     G: nx.Graph,
@@ -281,7 +272,7 @@ def run_simulation(
     sens = compute_sensitivity(
         C,
         participation_interval=nb_micro_batches // micro_batches_per_epoch,
-        num_epochs=num_steps,
+        nb_steps=num_steps,
     )
     print(f"sens²(C_{name}) = {sens**2}")
 
@@ -300,25 +291,6 @@ def run_simulation(
     elapsed_time = time.time() - start_time
     print(f"{name}: Training took {elapsed_time:.2f} seconds.")
     return name, test_losses
-
-
-def get_graph(name: str, n: int) -> nx.Graph:
-    G: nx.Graph
-    match name:
-        case "expander":
-            G = expander_graph(n, np.ceil(np.log(n)))
-        case "empty":
-            G = nx.empty_graph(n)
-        case "cycle":
-            G = nx.cycle_graph(n)
-        case "complete":
-            G = nx.complete_graph(n)
-        case _:
-            raise ValueError(f"Invalid graph name {name}")
-    G.add_edges_from(
-        [(i, i) for i in range(G.number_of_nodes())]
-    )  # Always keep this to make a useful graph
-    return G
 
 
 def check_and_concat_results(new_df, csv_path):
@@ -361,20 +333,22 @@ def main():
     device = torch.device(device_name)
     print(f"Device : {device}")
 
-    n = 100
-    graph_name = "complete"
-    num_repetition = 100  # Nb of full pass over the data
+    nb_nodes = 10
+    graph_name = "cycle"
+    num_repetition = 10  # Nb of full pass over the data
     micro_batches_size = 100
-    micro_batches_per_epoch = 2
+    micro_batches_per_epoch = 5
 
     dataloader_seed = 421
     lr = 1e-1
 
     input_dim = 8  # California housing dataset
 
-    G = get_graph(graph_name, n)
-    n = G.number_of_nodes()
-    trainloaders, _ = load_housing(n, train_batch_size=micro_batches_size)
+    G = get_graph(graph_name, nb_nodes)
+    nb_nodes = G.number_of_nodes()
+    communication_matrix = get_communication_matrix(G)
+
+    trainloaders, _ = load_housing(nb_nodes, train_batch_size=micro_batches_size)
     nb_micro_batches = [len(loader) for loader in trainloaders]
     print(nb_micro_batches)
     assert np.all(np.array(nb_micro_batches) == np.min(nb_micro_batches))
@@ -387,6 +361,24 @@ def main():
     C_LDP = workloads_generator.MF_LDP(nb_nodes=1, nb_iterations=num_steps)
     C_ANTIPGD = workloads_generator.MF_ANTIPGD(nb_nodes=1, nb_iterations=num_steps)
     C_BSR_LOCAL = workloads_generator.BSR_local_factorization(nb_iterations=num_steps)
+    _, C_OPTIMAL_DL = workloads_generator.MF_OPTIMAL_DL(
+        communication_matrix=communication_matrix,
+        nb_nodes=nb_nodes,
+        nb_steps=num_steps,
+        nb_epochs=num_repetition,
+    )
+    _, C_OPTIMAL_LOCAL = workloads_generator.MF_OPTIMAL_DL(
+        communication_matrix=communication_matrix,
+        nb_nodes=nb_nodes,
+        nb_steps=num_steps,
+        nb_epochs=num_repetition,
+    )
+
+    compute_sensitivity(
+        C_OPTIMAL_LOCAL,
+        participation_interval=num_steps // num_repetition,
+        nb_steps=num_steps,
+    )
 
     all_test_losses = {}
 
@@ -395,6 +387,8 @@ def main():
         ("LDP", C_LDP),
         ("ANTIPGD", C_ANTIPGD),
         ("BSR_LOCAL", C_BSR_LOCAL),
+        ("OPTIMAL", C_OPTIMAL_DL),
+        ("OPTIMAL_LOCAL", C_OPTIMAL_LOCAL),
     ]
 
     # Use ProcessPoolExecutor for true parallelism with PyTorch
@@ -439,7 +433,7 @@ def main():
     df["graph_name"] = graph_name
     df["num_passes"] = num_repetition
     df["total_steps"] = num_steps
-    df["num_nodes"] = n
+    df["num_nodes"] = nb_nodes
     df["num_repetitions"] = num_repetition
     df["micro_batch_size"] = micro_batches_size
     df["micro_batches_per_epoch"] = micro_batches_per_epoch
@@ -479,7 +473,7 @@ def main():
     # Add experiment details as a subtitle below the plot
     details = (
         f"Graph: {graph_name} | "
-        f"Nb nodes: {n} | "
+        f"Nb nodes: {nb_nodes} | "
         f"Micro-batches per epoch: {micro_batches_per_epoch} | "
         f"Micro-batch size: {micro_batches_size} | "
         f"Num_repetitions: {num_repetition}"
@@ -494,7 +488,7 @@ def main():
     os.makedirs("figures", exist_ok=True)
     # Create a unique filename with experiment details
     fig_filename = (
-        f"figures/housing_{graph_name}_n{n}_mb{micro_batches_size}_mbpe{micro_batches_per_epoch}_"
+        f"figures/housing_{graph_name}_n{nb_nodes}_mb{micro_batches_size}_mbpe{micro_batches_per_epoch}_"
         f"reps{num_repetition}_steps{num_steps}_seed{dataloader_seed}_lr{lr}.pdf"
     )
     plt.gcf().set_size_inches(10, 6)
