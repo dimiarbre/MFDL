@@ -67,6 +67,10 @@ def check_positive_definite(matrix):
         return True
 
 
+def termination_fn(dX, min_norm):
+    return np.abs(dX).max() <= min_norm
+
+
 class MatrixFatorizer:
     def __init__(
         self,
@@ -139,6 +143,7 @@ class MatrixFatorizer:
         self,
         iters: int = 1000,
         initial_X: Optional[np.ndarray] = None,
+        min_norm: float = 1e-8,  # If the gradient has norm less than this, end optimization.
     ) -> np.ndarray:
 
         if initial_X is None:
@@ -170,14 +175,16 @@ class MatrixFatorizer:
             step_size = 1.0
             for _ in range(30):
                 X = X1 - step_size * Z
-                print(f"Step {step}: positive & definite: {check_positive_definite(X)}")
+                # print(f"Step {step}: positive & definite: {check_positive_definite(X)}")
                 loss, dX = self.loss_and_gradient(X)
                 if np.isnan(loss) or np.isnan(dX).any():
                     step_size *= 0.25
                 elif loss < loss1:
                     loss1 = loss
                     break
-
+            if termination_fn(dX=dX, min_norm=min_norm):
+                # Early-return triggered; return X immediately.
+                return X
             Z = self.lbfgs_direction(X, dX, X1, dX1)
             X1 = X
             dX1 = dX
@@ -194,26 +201,33 @@ class MatrixFatorizer:
         return B_matrix, C_matrix
 
 
+def get_optimal_factorization(
+    workload, nb_steps: int, nb_epochs: int, optimizer_iterations: int = 10000
+):
+    optimizer = MatrixFatorizer(workload_matrix=workload, nb_epochs=nb_epochs)
+    gram_encoder = optimizer.optimize(optimizer_iterations)
+    B_optimized, C_optimized = optimizer.get_factorization(gram_encoder)
+    return B_optimized, C_optimized
+
+
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
+    import scienceplots
 
-    nb_steps = 100
-    nb_epochs = 20
+    plt.style.use(["science"])
+
+    nb_steps = 64
+    nb_epochs = 4  # Number of passes over each data point. k in a (b,k)-participation scheme, and b= nb_steps//nb_epochs
 
     workload = np.tri(nb_steps)
 
-    optimizer = MatrixFatorizer(workload_matrix=workload, nb_epochs=nb_epochs)
-
-    gram_encoder = optimizer.optimize(100)
-
-    print(gram_encoder)
-
-    B_optimized, C_optimized = optimizer.get_factorization(gram_encoder)
-
-    print(C_optimized)
-    print(np.linalg.pinv(C_optimized))
+    B_optimized, C_optimized = get_optimal_factorization(
+        workload=workload, nb_steps=nb_steps, nb_epochs=nb_epochs
+    )
 
     assert np.allclose(workload, B_optimized @ C_optimized)
 
-    plt.imshow(C_optimized)
+    plt.imshow(C_optimized, cmap="bwr")
+    plt.clim(-np.abs(C_optimized).max(), np.abs(C_optimized).max())
+    plt.colorbar()
     plt.show()
