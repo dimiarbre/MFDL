@@ -205,3 +205,6 @@ __marimo__/
 
 # Profiling results
 profiles/*.svg
+
+# Experiments results
+results/
