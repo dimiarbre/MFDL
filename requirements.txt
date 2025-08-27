@@ -6,3 +6,4 @@ seaborn
 numpy
 pytest
 opacus
+SciencePlots
