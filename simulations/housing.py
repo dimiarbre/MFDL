@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -111,6 +112,7 @@ def run_decentralized_training(
     trainloaders: list[data.DataLoader],
     testloader: data.DataLoader,
     input_dim: int,
+    lr: float = 1e-1,
     device: torch.device = torch.device("cpu"),
 ):
     nb_resets = 0
@@ -127,7 +129,7 @@ def run_decentralized_training(
             models[i].parameters(),
             C=C,
             participation_interval=participations_intervals[i],
-            lr=1e-2,
+            lr=lr,
             device=device,
             id=i,
         )
@@ -266,6 +268,7 @@ def run_simulation(
     device_name: str,
     nb_micro_batches,
     dataloader_seed,
+    lr: float,
     micro_batches_size,
 ):
     device = torch.device(device_name)
@@ -291,6 +294,7 @@ def run_simulation(
         trainloaders=trainloaders,
         testloader=testloader,
         input_dim=input_dim,
+        lr=lr,
         device=device,
     )
     elapsed_time = time.time() - start_time
@@ -298,28 +302,77 @@ def run_simulation(
     return name, test_losses
 
 
-def main():
+def get_graph(name: str, n: int) -> nx.Graph:
     G: nx.Graph
+    match name:
+        case "expander":
+            G = expander_graph(n, np.ceil(np.log(n)))
+        case "empty":
+            G = nx.empty_graph(n)
+        case "cycle":
+            G = nx.cycle_graph(n)
+        case "complete":
+            G = nx.complete_graph(n)
+        case _:
+            raise ValueError(f"Invalid graph name {name}")
+    G.add_edges_from(
+        [(i, i) for i in range(G.number_of_nodes())]
+    )  # Always keep this to make a useful graph
+    return G
+
+
+def check_and_concat_results(new_df, csv_path):
+    if os.path.exists(csv_path):
+        existing_df = pd.read_csv(csv_path)
+        # Define the columns that uniquely identify an experiment
+        key_columns = [
+            "graph_name",
+            "num_passes",
+            "total_steps",
+            "num_nodes",
+            "num_repetitions",
+            "micro_batch_size",
+            "micro_batches_per_epoch",
+            "nb_micro_batches",
+            "input_dim",
+            "device",
+            "dataloader_seed",
+            "lr",
+            "test_batch_size",
+            "test_fraction",
+        ]
+        # Check if any row in new_df matches all key columns in existing_df
+        merged = pd.merge(
+            new_df[key_columns].drop_duplicates(),
+            existing_df[key_columns].drop_duplicates(),
+            on=key_columns,
+            how="inner",
+        )
+        if not merged.empty:
+            raise ValueError("Matching experiment already exists in results file.")
+        # Concatenate and return
+        return pd.concat([existing_df, new_df], ignore_index=True)
+    else:
+        return new_df
+
+
+def main():
     device_name = "cpu"
     device = torch.device(device_name)
     print(f"Device : {device}")
 
     n = 100
-
-    # G: nx.Graph = nx.empty_graph(n)
-    # G: nx.Graph = nx.cycle_graph(n)
-    # G = expander_graph(n, np.ceil(np.log(n)))
-    G = nx.complete_graph(n)
-    # G = nx.watts_strogatz_graph(n, k=10, p=0.3)
-
-    G.add_edges_from(
-        [(i, i) for i in range(G.number_of_nodes())]
-    )  # Always keep this to make a useful graph
-    input_dim = 8  # California housing dataset
+    graph_name = "complete"
     num_repetition = 100  # Nb of full pass over the data
-    micro_batches_size = 50
+    micro_batches_size = 100
     micro_batches_per_epoch = 2
 
+    dataloader_seed = 421
+    lr = 1e-1
+
+    input_dim = 8  # California housing dataset
+
+    G = get_graph(graph_name, n)
     n = G.number_of_nodes()
     trainloaders, _ = load_housing(n, train_batch_size=micro_batches_size)
     nb_micro_batches = [len(loader) for loader in trainloaders]
@@ -333,14 +386,15 @@ def main():
     C_NONOISE = np.zeros((num_steps, num_steps))
     C_LDP = workloads_generator.MF_LDP(nb_nodes=1, nb_iterations=num_steps)
     C_ANTIPGD = workloads_generator.MF_ANTIPGD(nb_nodes=1, nb_iterations=num_steps)
+    C_BSR_LOCAL = workloads_generator.BSR_local_factorization(nb_iterations=num_steps)
 
     all_test_losses = {}
-    plt.figure()
 
     configs = [
         ("Unnoised baseline", C_NONOISE),
         ("LDP", C_LDP),
         ("ANTIPGD", C_ANTIPGD),
+        ("BSR_LOCAL", C_BSR_LOCAL),
     ]
 
     # Use ProcessPoolExecutor for true parallelism with PyTorch
@@ -351,7 +405,8 @@ def main():
         "input_dim": input_dim,
         "device_name": device_name,
         "nb_micro_batches": nb_micro_batches,
-        "dataloader_seed": 421,
+        "dataloader_seed": dataloader_seed,
+        "lr": lr,
         "micro_batches_size": micro_batches_size,
     }
     run_simulation_partial = functools.partial(run_simulation, **run_sim_args)
@@ -363,6 +418,46 @@ def main():
     for name, test_losses in results:
         all_test_losses[name] = test_losses
 
+    # Organize results into a DataFrame
+    records = []
+    for name, test_losses in all_test_losses.items():
+        for step in range(test_losses.shape[0]):
+            for node in range(test_losses.shape[1]):
+                records.append(
+                    {
+                        "method": name,
+                        "step": step,
+                        "node": node,
+                        "test_loss": test_losses[step, node],
+                    }
+                )
+
+    csv_path = "results/housing_simulation_results.csv"
+
+    df = pd.DataFrame(records)
+    # Add experiment parameters to the DataFrame for each record
+    df["graph_name"] = graph_name
+    df["num_passes"] = num_repetition
+    df["total_steps"] = num_steps
+    df["num_nodes"] = n
+    df["num_repetitions"] = num_repetition
+    df["micro_batch_size"] = micro_batches_size
+    df["micro_batches_per_epoch"] = micro_batches_per_epoch
+    df["nb_micro_batches"] = nb_micro_batches
+    df["input_dim"] = input_dim
+    df["device"] = device_name
+    df["dataloader_seed"] = run_sim_args["dataloader_seed"]
+    df["lr"] = run_sim_args["lr"]
+    # df["train_batch_size"] = micro_batches_size # Same thing as micro_batch_size
+    df["test_batch_size"] = 4096  # hardcoded in load_housing
+    df["test_fraction"] = 0.2  # hardcoded in load_housing
+
+    df = check_and_concat_results(df, csv_path)
+    # Save to CSV
+    df.to_csv(csv_path, index=False)
+    print(f"Results saved to {csv_path}")
+
+    plt.figure()
     for name, test_losses in all_test_losses.items():
         # Plot the min and max
 
@@ -381,7 +476,31 @@ def main():
     plt.title("Test losses per model")
     plt.xlabel("Communication rounds")
     plt.ylabel("Test loss")
-    plt.show()
+    # Add experiment details as a subtitle below the plot
+    details = (
+        f"Graph: {graph_name} | "
+        f"Nb nodes: {n} | "
+        f"Micro-batches per epoch: {micro_batches_per_epoch} | "
+        f"Micro-batch size: {micro_batches_size} | "
+        f"Num_repetitions: {num_repetition}"
+    )
+    plt.subplots_adjust(bottom=0.18)
+    plt.figtext(
+        0.5, 0.005, details, wrap=True, horizontalalignment="center", fontsize=10
+    )
+    plt.tight_layout()
+
+    # Ensure the figures directory exists
+    os.makedirs("figures", exist_ok=True)
+    # Create a unique filename with experiment details
+    fig_filename = (
+        f"figures/housing_{graph_name}_n{n}_mb{micro_batches_size}_mbpe{micro_batches_per_epoch}_"
+        f"reps{num_repetition}_steps{num_steps}_seed{dataloader_seed}_lr{lr}.pdf"
+    )
+    plt.gcf().set_size_inches(10, 6)
+    plt.tight_layout()
+    plt.savefig(fig_filename, bbox_inches="tight", dpi=200, format="pdf")
+    print(f"Figure saved to {fig_filename}")
 
 
 if __name__ == "__main__":
