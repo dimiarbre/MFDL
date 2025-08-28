@@ -39,7 +39,7 @@ class MFDLSGD(Optimizer):
             self.C_sens = compute_sensitivity(
                 self.C,
                 participation_interval=self.participation_interval,
-                num_epochs=len(C),  # TODO: Change this if C becomes between nodes
+                nb_steps=len(C),  # TODO: Change this if C becomes between nodes
             )
         else:
             self.C_sens = C_sens

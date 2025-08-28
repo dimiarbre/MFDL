@@ -43,8 +43,12 @@ def _permute_lower_triangle(h_lower: np.ndarray) -> np.ndarray:
     return perm @ h_lower @ perm.T
 
 
+def termination_metric(dX):
+    return np.abs(dX).max()
+
+
 def termination_fn(dX, min_norm):
-    return np.abs(dX).max() <= min_norm
+    return termination_metric(dX) <= min_norm
 
 
 class MatrixFatorizer:
@@ -120,6 +124,7 @@ class MatrixFatorizer:
         iters: int = 1000,
         initial_X: Optional[np.ndarray] = None,
         min_norm: float = 1e-8,  # If the gradient has norm less than this, end optimization.
+        initial_step_size: float = 1.0,
     ) -> np.ndarray:
 
         if initial_X is None:
@@ -145,10 +150,15 @@ class MatrixFatorizer:
         Z = dX
 
         for step in range(iters):
+            print(
+                f"Step: {step}/{iters} - loss {loss1:.2f} - termination condition: {termination_metric(dX):.2e} <= {min_norm:.0e}"
+                + 10 * " ",
+                end="\r",
+            )
             # Check if X is positive semidefinite
             # TODO: Remove
             # print(f"Step {step}: positive & definite: {check_positive_definite(X)}")
-            step_size = 1.0
+            step_size = initial_step_size
             for _ in range(30):
                 X = X1 - step_size * Z
                 # print(f"Step {step}: positive & definite: {check_positive_definite(X)}")
@@ -192,8 +202,10 @@ if __name__ == "__main__":
 
     plt.style.use(["science"])
 
-    nb_steps = 64
     nb_epochs = 4  # Number of passes over each data point. k in a (b,k)-participation scheme, and b= nb_steps//nb_epochs
+    nb_batches = 16  # b, number of batches
+
+    nb_steps = nb_batches * nb_epochs
 
     workload = np.tri(nb_steps)
 
@@ -208,3 +220,5 @@ if __name__ == "__main__":
     plt.clim(-np.abs(C_optimized).max(), np.abs(C_optimized).max())
     plt.colorbar()
     plt.show()
+
+    X = C_optimized.T @ C_optimized

@@ -52,7 +52,8 @@ def compute_sensitivity(
         nb_steps % participation_interval == 0
     ), f"Participation Interval {participation_interval} does not divide number of steps {nb_steps}"
 
-    participation_mask = utils.get_orthogonal_mask(n=nb_steps, epochs=nb_steps)
+    nb_epochs = nb_steps // participation_interval
+    participation_mask = utils.get_orthogonal_mask(n=nb_steps, epochs=nb_epochs)
 
     if np.all(X >= 0):
         # Using the trick of Corollary 2.1 (https://proceedings.mlr.press/v202/choquette-choo23a/choquette-choo23a.pdf)
@@ -61,7 +62,7 @@ def compute_sensitivity(
         )
         sens = np.sqrt(np.max(np.diag(contrib_matrix.T @ X @ contrib_matrix)))
 
-    elif np.all((1 - participation_mask) * X == 0):
+    elif np.allclose((1 - participation_mask) * X, 0, atol=1e-10):
         diag = np.diag(X)
         sensitivities = []
         for i in range(participation_interval):

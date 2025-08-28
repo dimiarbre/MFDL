@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import pandas as pd
+import plotters
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -335,9 +336,9 @@ def main():
 
     nb_nodes = 10
     graph_name = "cycle"
-    num_repetition = 10  # Nb of full pass over the data
-    micro_batches_size = 100
-    micro_batches_per_epoch = 5
+    num_repetition = 4  # Nb of full pass over the data
+    micro_batches_size = 110
+    micro_batches_per_epoch = 1
 
     dataloader_seed = 421
     lr = 1e-1
@@ -356,26 +357,68 @@ def main():
 
     num_steps = num_repetition * (nb_micro_batches // micro_batches_per_epoch)
 
+    print(f"Number of steps per epoch: {num_steps // num_repetition}")
+
+    # String of experiment details for plots
+    current_experiment_properties = f"{graph_name}_n{nb_nodes}_mb{micro_batches_size}_mbpe{micro_batches_per_epoch}_reps{num_repetition}_steps{num_steps}_seed{dataloader_seed}_lr{lr}"
+    details = (
+        f"Graph: {graph_name} | "
+        f"Nb nodes: {nb_nodes} | "
+        f"Micro-batches per epoch: {micro_batches_per_epoch} | "
+        f"Micro-batch size: {micro_batches_size} | "
+        f"Num_repetitions: {num_repetition}"
+    )
+
     # Here, we only consider "local" correlations, hence nb_nodes = 1.
     C_NONOISE = np.zeros((num_steps, num_steps))
     C_LDP = workloads_generator.MF_LDP(nb_nodes=1, nb_iterations=num_steps)
     C_ANTIPGD = workloads_generator.MF_ANTIPGD(nb_nodes=1, nb_iterations=num_steps)
     C_BSR_LOCAL = workloads_generator.BSR_local_factorization(nb_iterations=num_steps)
+    print("Starting computation of C_OPTIMAL_LOCAL...")
+    start_time_local = time.time()
+    _, C_OPTIMAL_LOCAL = workloads_generator.MF_OPTIMAL_local(
+        communication_matrix=communication_matrix,
+        nb_nodes=nb_nodes,
+        nb_steps=num_steps,
+        nb_epochs=num_repetition,
+    )
+    elapsed_time_local = time.time() - start_time_local
+    print(
+        f"Finished computation of C_OPTIMAL_LOCAL in {elapsed_time_local:.2f} seconds."
+    )
+
+    print("Starting computation of C_OPTIMAL_DL...")
+    start_time_dl = time.time()
     _, C_OPTIMAL_DL = workloads_generator.MF_OPTIMAL_DL(
         communication_matrix=communication_matrix,
         nb_nodes=nb_nodes,
         nb_steps=num_steps,
         nb_epochs=num_repetition,
     )
-    _, C_OPTIMAL_LOCAL = workloads_generator.MF_OPTIMAL_DL(
-        communication_matrix=communication_matrix,
-        nb_nodes=nb_nodes,
-        nb_steps=num_steps,
-        nb_epochs=num_repetition,
+    elapsed_time_dl = time.time() - start_time_dl
+    print(f"Finished computation of C_OPTIMAL_DL in {elapsed_time_dl:.2f} seconds.")
+
+    plotters.plot_factorization(
+        C_OPTIMAL_DL,
+        title="C Optimal DL workload",
+        details=details,
+        save_name_properties=f"DLopti_{current_experiment_properties}",
+    )
+    plotters.plot_factorization(
+        C_OPTIMAL_LOCAL,
+        title="C optimal Local workload",
+        details=details,
+        save_name_properties=f"LOCALopti_{current_experiment_properties}",
     )
 
     compute_sensitivity(
         C_OPTIMAL_LOCAL,
+        participation_interval=num_steps // num_repetition,
+        nb_steps=num_steps,
+    )
+
+    compute_sensitivity(
+        C_OPTIMAL_DL,
         participation_interval=num_steps // num_repetition,
         nb_steps=num_steps,
     )
@@ -451,50 +494,12 @@ def main():
     df.to_csv(csv_path, index=False)
     print(f"Results saved to {csv_path}")
 
-    plt.figure()
-    for name, test_losses in all_test_losses.items():
-        # Plot the min and max
-
-        print(test_losses.shape)
-        avg_loss = test_losses.mean(axis=1)
-        min_loss = test_losses.min(axis=1)
-        max_loss = test_losses.max(axis=1)
-
-        (line,) = plt.plot(range(num_steps), avg_loss, label=name)
-        color = line.get_color()
-        plt.fill_between(range(num_steps), min_loss, max_loss, alpha=0.2, color=color)
-
-    plt.legend()
-    plt.grid()
-
-    plt.title("Test losses per model")
-    plt.xlabel("Communication rounds")
-    plt.ylabel("Test loss")
-    # Add experiment details as a subtitle below the plot
-    details = (
-        f"Graph: {graph_name} | "
-        f"Nb nodes: {nb_nodes} | "
-        f"Micro-batches per epoch: {micro_batches_per_epoch} | "
-        f"Micro-batch size: {micro_batches_size} | "
-        f"Num_repetitions: {num_repetition}"
+    plotters.plot_housing_results(
+        all_test_losses=all_test_losses,
+        num_steps=num_steps,
+        details=details,
+        experiment_properties=current_experiment_properties,
     )
-    plt.subplots_adjust(bottom=0.18)
-    plt.figtext(
-        0.5, 0.005, details, wrap=True, horizontalalignment="center", fontsize=10
-    )
-    plt.tight_layout()
-
-    # Ensure the figures directory exists
-    os.makedirs("figures", exist_ok=True)
-    # Create a unique filename with experiment details
-    fig_filename = (
-        f"figures/housing_{graph_name}_n{nb_nodes}_mb{micro_batches_size}_mbpe{micro_batches_per_epoch}_"
-        f"reps{num_repetition}_steps{num_steps}_seed{dataloader_seed}_lr{lr}.pdf"
-    )
-    plt.gcf().set_size_inches(10, 6)
-    plt.tight_layout()
-    plt.savefig(fig_filename, bbox_inches="tight", dpi=200, format="pdf")
-    print(f"Figure saved to {fig_filename}")
 
 
 if __name__ == "__main__":
