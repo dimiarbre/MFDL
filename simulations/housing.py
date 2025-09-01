@@ -318,6 +318,7 @@ def run_experiment(
     dataloader_seed=421,
     lr=1e-1,
     nb_micro_batches=16,
+    recompute: bool = False,
 ):
     device_name = "cpu"
     device = torch.device(device_name)
@@ -364,6 +365,11 @@ def run_experiment(
         f"Num_repetitions: {num_repetition}",
     )
     csv_path = f"results/housing/simulation_{current_experiment_properties}.csv"
+
+    # Check if results already exist and skip if not recomputing
+    if (not recompute) and os.path.exists(csv_path):
+        print(f"Results already exist at {csv_path}. Skipping computation.")
+        return
 
     # Here, we only consider "local" correlations, hence nb_nodes = 1.
     C_NONOISE = np.zeros((num_steps, num_steps))
@@ -540,6 +546,12 @@ def main():
         default=False,
         help="Run in debug mode (no multiprocessing, no CSV save)",
     )
+    parser.add_argument(
+        "--recompute",
+        action="store_true",
+        default=False,
+        help="Restart all experiments from scratch. Will ignore already-computed csv files, disabling checkpointing.",
+    )
 
     args = parser.parse_args()
 
@@ -553,6 +565,7 @@ def main():
         lr=args.lr,
         nb_micro_batches=args.nb_micro_batches,
         debug=args.debug,
+        recompute=args.recompute,
     )
 
 

@@ -31,7 +31,7 @@ for num_repetition in "${num_repetitions[@]}"; do
                 for lr in "${lrs[@]}"; do
                     current_config=$((current_config + 1))
                     echo "Running configuration $current_config / $total_configs"
-                    cmd="python simulations/housing.py --nb_nodes $nb_nodes --lr $lr --num_repetition $num_repetition --nb_micro_batches 16 --graph_name $graph_name"
+                    cmd="python simulations/housing.py --nb_nodes $nb_nodes --lr $lr --num_repetition $num_repetition --nb_micro_batches 16 --graph_name $graph_name --use_optimals --recompute"  
                     echo "$cmd":
                     if ! $cmd; then
                         failed_configs+=("$cmd"\n)
