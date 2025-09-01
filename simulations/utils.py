@@ -16,7 +16,24 @@ def get_graph(name: str, n: int) -> nx.Graph:
     G: nx.Graph
     match name:
         case "expander":
-            G = expander_graph(n, np.ceil(np.log(n)))
+            if n == 1:
+                G = nx.empty_graph(n)
+            else:
+                d = int(np.ceil(np.log(n)))
+                # Ensure d divides n and d < n
+                if d >= n:
+                    d = n - 1
+                if n % d != 0:
+                    # Find the largest d < n that divides n
+                    divisors = [k for k in range(d, 0, -1) if n % k == 0]
+                    if not divisors:
+                        raise ValueError(
+                            f"Cannot find a suitable degree for expander graph with n={n}"
+                        )
+                    d = divisors[0]
+                assert d < n, "Degree d must be less than number of nodes n"
+                assert n % d == 0, "Degree d must divide n"
+                G = expander_graph(n, d)
         case "empty":
             G = nx.empty_graph(n)
         case "cycle":
