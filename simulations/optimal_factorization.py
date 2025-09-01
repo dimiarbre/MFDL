@@ -51,7 +51,7 @@ def termination_fn(dX, min_norm):
     return termination_metric(dX) <= min_norm
 
 
-class MatrixFatorizer:
+class MatrixFactorizer:
     def __init__(
         self,
         workload_matrix: np.ndarray,
@@ -191,9 +191,25 @@ class MatrixFatorizer:
 def get_optimal_factorization(
     workload, nb_steps: int, nb_epochs: int, optimizer_iterations: int = 10000
 ):
-    optimizer = MatrixFatorizer(workload_matrix=workload, nb_epochs=nb_epochs)
+    optimizer = MatrixFactorizer(workload_matrix=workload, nb_epochs=nb_epochs)
     gram_encoder = optimizer.optimize(optimizer_iterations)
     B_optimized, C_optimized = optimizer.get_factorization(gram_encoder)
+    return B_optimized, C_optimized
+
+
+def get_optimal_factorization_gram(
+    gram_matrix,
+    nb_steps: int,
+    nb_epochs: int,
+    optimizer_iterations: int = 10000,
+):
+    workload = np.linalg.cholesky(_permute_lower_triangle(gram_matrix))
+    optimizer = MatrixFactorizer(
+        workload_matrix=workload,
+        nb_epochs=nb_epochs,
+    )
+    gram_encoder_C = optimizer.optimize(optimizer_iterations)
+    B_optimized, C_optimized = optimizer.get_factorization(gram_encoder_C)
     return B_optimized, C_optimized
 
 
@@ -216,10 +232,25 @@ if __name__ == "__main__":
 
     assert np.allclose(workload, B_optimized @ C_optimized)
 
+    plt.figure()
     # C_optimized = np.linalg.pinv(C_optimized)
     plt.imshow(C_optimized, cmap="bwr")
     plt.clim(-np.abs(C_optimized).max(), np.abs(C_optimized).max())
     plt.colorbar()
-    plt.show()
 
     X = C_optimized.T @ C_optimized
+
+    B_optimized_gram, C_optimized_gram = get_optimal_factorization_gram(
+        gram_matrix=workload.T @ workload,
+        nb_steps=nb_steps,
+        nb_epochs=nb_epochs,
+    )
+
+    assert np.allclose(workload, B_optimized_gram @ C_optimized_gram)
+
+    plt.figure()
+    # C_optimized = np.linalg.pinv(C_optimized)
+    plt.imshow(C_optimized_gram, cmap="bwr")
+    plt.clim(-np.abs(C_optimized_gram).max(), np.abs(C_optimized_gram).max())
+    plt.colorbar()
+    plt.show()

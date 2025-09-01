@@ -156,11 +156,13 @@ def build_local_DL_workload(matrix: np.ndarray, nb_steps: int, initial_power: in
         Ai = A[:, nb_steps * i : nb_steps * (i + 1)]
         gram_workload += Ai.T @ Ai
 
-    # TODO: remove this
-    is_positive_definite = utils.check_positive_definite(gram_workload)
+    gram_workload_permuted = optimal_factorization._permute_lower_triangle(
+        gram_workload
+    )
+    is_positive_definite = utils.check_positive_definite(gram_workload_permuted)
 
     if is_positive_definite:
-        surrogate_workload = np.linalg.cholesky(gram_workload)
+        surrogate_workload = np.linalg.cholesky(gram_workload_permuted)
     else:
         print(
             "!" * 50
