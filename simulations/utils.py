@@ -20,17 +20,17 @@ def get_graph(name: str, n: int) -> nx.Graph:
                 G = nx.empty_graph(n)
             else:
                 d = int(np.ceil(np.log(n)))
-                # Ensure d divides n and d < n
-                if d >= n:
-                    d = n - 1
-                if n % d != 0:
-                    # Find the largest d < n that divides n
-                    divisors = [k for k in range(d, 0, -1) if n % k == 0]
-                    if not divisors:
-                        raise ValueError(
-                            f"Cannot find a suitable degree for expander graph with n={n}"
-                        )
+                # Ensure d is at least 1 and less than n
+                d = max(1, min(d, n - 1))
+                # Find the largest d < n that divides n
+                divisors = [k for k in range(d, 0, -1) if n % k == 0]
+                if divisors:
                     d = divisors[0]
+                else:
+                    d = 1  # fallback to 1 if no divisor found
+                    print(
+                        f"Could not find a divisor for {n} nodes, falling back to 1 node."
+                    )
                 assert d < n, "Degree d must be less than number of nodes n"
                 assert n % d == 0, "Degree d must divide n"
                 G = expander_graph(n, d)

@@ -344,13 +344,24 @@ def run_experiment(
     print(f"Number of steps per epoch: {num_steps // num_repetition}")
 
     # String of experiment details for plots
-    current_experiment_properties = f"{graph_name}_n{nb_nodes}_mb{micro_batches_size}_mbpe{micro_batches_per_epoch}_reps{num_repetition}_steps{num_steps}_seed{dataloader_seed}_lr{lr}"
+    current_experiment_properties = (
+        f"graph{graph_name}_"
+        f"nodes{nb_nodes}_"
+        f"eps{epsilon}_"
+        f"reps{num_repetition}_"
+        f"mbpe{micro_batches_per_epoch}_"
+        f"lr{lr}_"
+        f"seed{dataloader_seed}_"
+        f"mbsize{micro_batches_size}_"
+        f"steps{num_steps}_"  # Should be redundant
+    )
     details = (
         f"Graph: {graph_name} | "
         f"Nb nodes: {nb_nodes} | "
-        f"Micro-batches per epoch: {micro_batches_per_epoch} | "
+        f"Micro-batches per epoch: {micro_batches_per_epoch} | ",
+        f"Nb micro batches: {nb_micro_batches} | "
         f"Micro-batch size: {micro_batches_size} | "
-        f"Num_repetitions: {num_repetition}"
+        f"Num_repetitions: {num_repetition}",
     )
     csv_path = f"results/housing/simulation_{current_experiment_properties}.csv"
 
@@ -366,7 +377,7 @@ def run_experiment(
         ("Unnoised baseline", C_NONOISE),
         ("LDP", C_LDP),
         ("ANTIPGD", C_ANTIPGD),
-        # ("BSR_LOCAL", C_BSR_LOCAL),
+        ("BSR_LOCAL", C_BSR_LOCAL),
     ]
 
     if use_optimals:
@@ -480,6 +491,7 @@ def run_experiment(
     df["lr"] = run_sim_args["lr"]
     df["test_batch_size"] = 4096  # hardcoded in load_housing
     df["test_fraction"] = 0.2  # hardcoded in load_housing
+    df["epsilon"] = epsilon
 
     # Save to CSV
     if not debug:
