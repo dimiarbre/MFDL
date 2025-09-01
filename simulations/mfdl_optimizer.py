@@ -14,8 +14,8 @@ class MFDLSGD(Optimizer):
         id=0,
         lr=1e-3,
         l2_norm_clip=1,
-        noise_multiplier=1,
-        batch_size=500,
+        noise_multiplier: float = 1.0,
+        batch_size: int = 500,
         device: torch.device = torch.device("cpu"),
     ):
         # Initialize parameters
@@ -64,18 +64,18 @@ class MFDLSGD(Optimizer):
         # Generate all the independent noises for each trainable parameter at the beginning.
         # TODO: optimize this in terms of memory, but you'd need a banded assumption or something along those line.
 
-        self.noise_variance = (
+        self.noise_std = (
             self.l2_norm_clip * self.C_sens * self.noise_multiplier / self.batch_size
         )  # TODO: Check the value for the noise variance
 
         self.noises = torch.normal(
             0,
-            std=self.noise_variance,
+            std=self.noise_std,
             size=(self.Cinv.shape[-1], self.num_trainable_params),
             device=device,
         )
         if self.id == 0:
-            print(f"Noise variance: {self.noise_variance}")
+            print(f"Noise std: {self.noise_std}")
 
         param_dtype = next(
             p.dtype
@@ -85,9 +85,10 @@ class MFDLSGD(Optimizer):
         )
         self.noises = self.noises.to(param_dtype)
         self.Cinv = self.Cinv.to(param_dtype)
-        self.noises = torch.matmul(
+        new_noises = torch.matmul(
             self.Cinv, self.noises
         )  # the actual correlated noises to add
+        self.noises = new_noises
         self.noise_index = 0
 
         for group in self.param_groups:
@@ -187,3 +188,4 @@ class MFDLSGD(Optimizer):
                     # Zero out the accumulated gradients after each minibatch step
                     group["accum_grads"][ind].zero_()
         assert noises_used == self.num_trainable_params  # Ensure we used ALL the noises
+        return None

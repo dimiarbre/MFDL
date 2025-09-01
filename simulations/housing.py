@@ -1,3 +1,4 @@
+import argparse
 import concurrent.futures
 import functools
 import multiprocessing
@@ -31,13 +32,12 @@ warnings.filterwarnings(
     message="Full backward hook is firing when gradients are computed with respect to module outputs since no inputs require gradients.",
 )
 
-NB_RESETS = 0
-
 
 # Simple MLP for regression
 class HousingMLP(nn.Module):
-    def __init__(self, input_dim):
+    def __init__(self, input_dim, seed=421):
         super().__init__()
+        torch.manual_seed(seed)
         self.net = nn.Sequential(nn.Linear(input_dim, 64), nn.ReLU(), nn.Linear(64, 1))
 
     def forward(self, x):
@@ -110,6 +110,7 @@ def run_decentralized_training(
     graph: nx.Graph,
     num_steps: int,
     C: np.ndarray,
+    epsilon: float,
     micro_batches_per_epoch: int,
     trainloaders: list[data.DataLoader],
     testloader: data.DataLoader,
@@ -119,24 +120,33 @@ def run_decentralized_training(
 ):
     nb_resets = 0
     num_nodes = graph.number_of_nodes()
-    models = [
-        GradSampleModule(HousingMLP(input_dim)).to(device) for _ in range(num_nodes)
-    ]
+    # Ensure all models start from the same initial weights by seeding before each model creation
+    models = []
+    for _ in range(num_nodes):
+        torch.manual_seed(421)
+        np.random.seed(421)
+        model = GradSampleModule(HousingMLP(input_dim)).to(device)
+        models.append(model)
     participations_intervals = [
         len(trainloader) // micro_batches_per_epoch for trainloader in trainloaders
     ]
     # optimizers = [optim.Adam(models[i].parameters(), lr=1e-2) for i in range(num_nodes)]
-    optimizers = [
-        MFDLSGD(
-            models[i].parameters(),
-            C=C,
-            participation_interval=participations_intervals[i],
-            lr=lr,
-            device=device,
-            id=i,
+    optimizers = []
+    for i in range(num_nodes):
+        batch_size = trainloaders[i].batch_size
+        assert batch_size is not None, "Batch size should not be None"
+        optimizers.append(
+            MFDLSGD(
+                models[i].parameters(),
+                C=C,
+                participation_interval=participations_intervals[i],
+                lr=lr,
+                device=device,
+                id=i,
+                noise_multiplier=1 / epsilon,
+                batch_size=batch_size * micro_batches_per_epoch,
+            )
         )
-        for i in range(num_nodes)
-    ]
     data_iters = [iter(trainloaders[i]) for i in range(num_nodes)]
 
     test_losses: list[list[float]] = [[] for _ in range(num_nodes)]
@@ -158,7 +168,7 @@ def run_decentralized_training(
 
     # Test losses of shape [nb_steps, nb_nodes]. Time is the 1st axis, nodes the second.
     res_test_losses = np.array(test_losses).T
-    print(f"Simulation needed {NB_RESETS} passes through the dataset")
+    print(f"Simulation needed {nb_resets} passes through the dataset")
     return models, res_test_losses
 
 
@@ -204,7 +214,7 @@ def load_housing(
 ):
     g = torch.Generator()
     g.manual_seed(seed)
-    dataset = fetch_california_housing()
+    dataset = fetch_california_housing()  # 20,640 samples
     X = torch.tensor(StandardScaler().fit_transform(dataset.data), dtype=torch.float32)
     y = torch.tensor(dataset.target, dtype=torch.float32)
 
@@ -256,6 +266,7 @@ def run_simulation(
     G: nx.Graph,
     num_steps,
     micro_batches_per_epoch,
+    epsilon: float,
     input_dim,
     device_name: str,
     nb_micro_batches,
@@ -263,6 +274,8 @@ def run_simulation(
     lr: float,
     micro_batches_size,
 ):
+    np.random.seed(dataloader_seed)
+    torch.manual_seed(dataloader_seed)
     device = torch.device(device_name)
     n = G.number_of_nodes()
     trainloaders, testloader = load_housing(
@@ -282,6 +295,7 @@ def run_simulation(
         G,
         num_steps=num_steps,
         C=C,
+        epsilon=epsilon,
         micro_batches_per_epoch=micro_batches_per_epoch,
         trainloaders=trainloaders,
         testloader=testloader,
@@ -294,54 +308,24 @@ def run_simulation(
     return name, test_losses
 
 
-def check_and_concat_results(new_df, csv_path):
-    if os.path.exists(csv_path):
-        existing_df = pd.read_csv(csv_path)
-        # Define the columns that uniquely identify an experiment
-        key_columns = [
-            "graph_name",
-            "num_passes",
-            "total_steps",
-            "num_nodes",
-            "num_repetitions",
-            "micro_batch_size",
-            "micro_batches_per_epoch",
-            "nb_micro_batches",
-            "input_dim",
-            "device",
-            "dataloader_seed",
-            "lr",
-            "test_batch_size",
-            "test_fraction",
-        ]
-        # Check if any row in new_df matches all key columns in existing_df
-        merged = pd.merge(
-            new_df[key_columns].drop_duplicates(),
-            existing_df[key_columns].drop_duplicates(),
-            on=key_columns,
-            how="inner",
-        )
-        if not merged.empty:
-            raise ValueError("Matching experiment already exists in results file.")
-        # Concatenate and return
-        return pd.concat([existing_df, new_df], ignore_index=True)
-    else:
-        return new_df
-
-
-def main():
+def run_experiment(
+    debug=True,
+    use_optimals=False,
+    nb_nodes=10,
+    graph_name="expander",
+    epsilon: float = 1.0,
+    num_repetition=5,
+    dataloader_seed=421,
+    lr=1e-1,
+    nb_micro_batches=16,
+):
     device_name = "cpu"
     device = torch.device(device_name)
     print(f"Device : {device}")
 
-    nb_nodes = 10
-    graph_name = "cycle"
-    num_repetition = 4  # Nb of full pass over the data
-    micro_batches_size = 110
+    # 20,640 total samples, 20,640 * 0.8 = 16,512 train samples
+    micro_batches_size = 16512 // (nb_nodes * nb_micro_batches)
     micro_batches_per_epoch = 1
-
-    dataloader_seed = 421
-    lr = 1e-1
 
     input_dim = 8  # California housing dataset
 
@@ -350,12 +334,12 @@ def main():
     communication_matrix = get_communication_matrix(G)
 
     trainloaders, _ = load_housing(nb_nodes, train_batch_size=micro_batches_size)
-    nb_micro_batches = [len(loader) for loader in trainloaders]
-    print(nb_micro_batches)
-    assert np.all(np.array(nb_micro_batches) == np.min(nb_micro_batches))
-    nb_micro_batches = np.min(nb_micro_batches)
+    nb_micro_batches_list = [len(loader) for loader in trainloaders]
+    print(nb_micro_batches_list)
+    assert np.all(np.array(nb_micro_batches_list) == np.min(nb_micro_batches_list))
+    nb_micro_batches_val = np.min(nb_micro_batches_list)
 
-    num_steps = num_repetition * (nb_micro_batches // micro_batches_per_epoch)
+    num_steps = num_repetition * (nb_micro_batches_val // micro_batches_per_epoch)
 
     print(f"Number of steps per epoch: {num_steps // num_repetition}")
 
@@ -368,60 +352,13 @@ def main():
         f"Micro-batch size: {micro_batches_size} | "
         f"Num_repetitions: {num_repetition}"
     )
+    csv_path = f"results/housing/simulation_{current_experiment_properties}.csv"
 
     # Here, we only consider "local" correlations, hence nb_nodes = 1.
     C_NONOISE = np.zeros((num_steps, num_steps))
     C_LDP = workloads_generator.MF_LDP(nb_nodes=1, nb_iterations=num_steps)
     C_ANTIPGD = workloads_generator.MF_ANTIPGD(nb_nodes=1, nb_iterations=num_steps)
     C_BSR_LOCAL = workloads_generator.BSR_local_factorization(nb_iterations=num_steps)
-    print("Starting computation of C_OPTIMAL_LOCAL...")
-    start_time_local = time.time()
-    _, C_OPTIMAL_LOCAL = workloads_generator.MF_OPTIMAL_local(
-        communication_matrix=communication_matrix,
-        nb_nodes=nb_nodes,
-        nb_steps=num_steps,
-        nb_epochs=num_repetition,
-    )
-    elapsed_time_local = time.time() - start_time_local
-    print(
-        f"Finished computation of C_OPTIMAL_LOCAL in {elapsed_time_local:.2f} seconds."
-    )
-
-    print("Starting computation of C_OPTIMAL_DL...")
-    start_time_dl = time.time()
-    _, C_OPTIMAL_DL = workloads_generator.MF_OPTIMAL_DL(
-        communication_matrix=communication_matrix,
-        nb_nodes=nb_nodes,
-        nb_steps=num_steps,
-        nb_epochs=num_repetition,
-    )
-    elapsed_time_dl = time.time() - start_time_dl
-    print(f"Finished computation of C_OPTIMAL_DL in {elapsed_time_dl:.2f} seconds.")
-
-    plotters.plot_factorization(
-        C_OPTIMAL_DL,
-        title="C Optimal DL workload",
-        details=details,
-        save_name_properties=f"DLopti_{current_experiment_properties}",
-    )
-    plotters.plot_factorization(
-        C_OPTIMAL_LOCAL,
-        title="C optimal Local workload",
-        details=details,
-        save_name_properties=f"LOCALopti_{current_experiment_properties}",
-    )
-
-    compute_sensitivity(
-        C_OPTIMAL_LOCAL,
-        participation_interval=num_steps // num_repetition,
-        nb_steps=num_steps,
-    )
-
-    compute_sensitivity(
-        C_OPTIMAL_DL,
-        participation_interval=num_steps // num_repetition,
-        nb_steps=num_steps,
-    )
 
     all_test_losses = {}
 
@@ -429,28 +366,86 @@ def main():
         ("Unnoised baseline", C_NONOISE),
         ("LDP", C_LDP),
         ("ANTIPGD", C_ANTIPGD),
-        ("BSR_LOCAL", C_BSR_LOCAL),
-        ("OPTIMAL", C_OPTIMAL_DL),
-        ("OPTIMAL_LOCAL", C_OPTIMAL_LOCAL),
+        # ("BSR_LOCAL", C_BSR_LOCAL),
     ]
+
+    if use_optimals:
+        print("Starting computation of C_OPTIMAL_LOCAL...")
+        start_time_local = time.time()
+        _, C_OPTIMAL_LOCAL = workloads_generator.MF_OPTIMAL_local(
+            communication_matrix=communication_matrix,
+            nb_nodes=nb_nodes,
+            nb_steps=num_steps,
+            nb_epochs=num_repetition,
+        )
+        elapsed_time_local = time.time() - start_time_local
+        print(
+            f"Finished computation of C_OPTIMAL_LOCAL in {elapsed_time_local:.2f} seconds."
+        )
+
+        print("Starting computation of C_OPTIMAL_DL...")
+        start_time_dl = time.time()
+        _, C_OPTIMAL_DL = workloads_generator.MF_OPTIMAL_DL(
+            communication_matrix=communication_matrix,
+            nb_nodes=nb_nodes,
+            nb_steps=num_steps,
+            nb_epochs=num_repetition,
+        )
+        elapsed_time_dl = time.time() - start_time_dl
+        print(f"Finished computation of C_OPTIMAL_DL in {elapsed_time_dl:.2f} seconds.")
+
+        plotters.plot_factorization(
+            C_OPTIMAL_DL,
+            title="C Optimal DL workload",
+            details=details,
+            save_name_properties=f"DLopti_{current_experiment_properties}",
+            debug=debug,
+        )
+        plotters.plot_factorization(
+            C_OPTIMAL_LOCAL,
+            title="C optimal Local workload",
+            details=details,
+            save_name_properties=f"LOCALopti_{current_experiment_properties}",
+            debug=debug,
+        )
+
+        compute_sensitivity(
+            C_OPTIMAL_LOCAL,
+            participation_interval=num_steps // num_repetition,
+            nb_steps=num_steps,
+        )
+
+        compute_sensitivity(
+            C_OPTIMAL_DL,
+            participation_interval=num_steps // num_repetition,
+            nb_steps=num_steps,
+        )
+        configs.append(("OPTIMAL", C_OPTIMAL_DL))
+        configs.append(("OPTIMAL_LOCAL", C_OPTIMAL_LOCAL))
 
     # Use ProcessPoolExecutor for true parallelism with PyTorch
     run_sim_args = {
         "G": G,
         "num_steps": num_steps,
         "micro_batches_per_epoch": micro_batches_per_epoch,
+        "epsilon": epsilon,
         "input_dim": input_dim,
         "device_name": device_name,
-        "nb_micro_batches": nb_micro_batches,
+        "nb_micro_batches": nb_micro_batches_val,
         "dataloader_seed": dataloader_seed,
         "lr": lr,
         "micro_batches_size": micro_batches_size,
     }
     run_simulation_partial = functools.partial(run_simulation, **run_sim_args)
 
-    context = multiprocessing.get_context("spawn")
-    with concurrent.futures.ProcessPoolExecutor(mp_context=context) as executor:
-        results = list(executor.map(run_simulation_partial, configs))
+    if debug:
+        results = []
+        for config in configs:
+            results.append(run_simulation_partial(config))
+    else:
+        context = multiprocessing.get_context("spawn")
+        with concurrent.futures.ProcessPoolExecutor(mp_context=context) as executor:
+            results = list(executor.map(run_simulation_partial, configs))
 
     for name, test_losses in results:
         all_test_losses[name] = test_losses
@@ -469,8 +464,6 @@ def main():
                     }
                 )
 
-    csv_path = "results/housing_simulation_results.csv"
-
     df = pd.DataFrame(records)
     # Add experiment parameters to the DataFrame for each record
     df["graph_name"] = graph_name
@@ -480,25 +473,74 @@ def main():
     df["num_repetitions"] = num_repetition
     df["micro_batch_size"] = micro_batches_size
     df["micro_batches_per_epoch"] = micro_batches_per_epoch
-    df["nb_micro_batches"] = nb_micro_batches
+    df["nb_micro_batches"] = nb_micro_batches_val
     df["input_dim"] = input_dim
     df["device"] = device_name
     df["dataloader_seed"] = run_sim_args["dataloader_seed"]
     df["lr"] = run_sim_args["lr"]
-    # df["train_batch_size"] = micro_batches_size # Same thing as micro_batch_size
     df["test_batch_size"] = 4096  # hardcoded in load_housing
     df["test_fraction"] = 0.2  # hardcoded in load_housing
 
-    df = check_and_concat_results(df, csv_path)
     # Save to CSV
-    df.to_csv(csv_path, index=False)
-    print(f"Results saved to {csv_path}")
+    if not debug:
+        df.to_csv(csv_path, index=False)
+        print(f"Results saved to {csv_path}")
 
     plotters.plot_housing_results(
         all_test_losses=all_test_losses,
         num_steps=num_steps,
         details=details,
         experiment_properties=current_experiment_properties,
+        debug=debug,
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Run housing simulation experiment.")
+    parser.add_argument("--nb_nodes", type=int, default=10, help="Number of nodes")
+    parser.add_argument("--graph_name", type=str, default="expander", help="Graph name")
+    parser.add_argument("--epsilon", type=float, default=1.0, help="Privacy budget")
+    parser.add_argument(
+        "--num_repetition",
+        type=int,
+        default=5,
+        help="Number of repetitions (full passes over data)",
+    )
+    parser.add_argument(
+        "--dataloader_seed", type=int, default=421, help="Seed for dataloader"
+    )
+    parser.add_argument(
+        "--use_optimals",
+        action="store_true",
+        default=False,
+        help="Use optimal workload matrices",
+    )
+    parser.add_argument("--lr", type=float, default=1e-1, help="Learning rate")
+    parser.add_argument(
+        "--nb_micro_batches",
+        type=int,
+        default=16,
+        help="Number of micro-batches per node (default: 16)",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="Run in debug mode (no multiprocessing, no CSV save)",
+    )
+
+    args = parser.parse_args()
+
+    run_experiment(
+        use_optimals=args.use_optimals,
+        nb_nodes=args.nb_nodes,
+        graph_name=args.graph_name,
+        num_repetition=args.num_repetition,
+        epsilon=args.epsilon,
+        dataloader_seed=args.dataloader_seed,
+        lr=args.lr,
+        nb_micro_batches=args.nb_micro_batches,
+        debug=args.debug,
     )
 
 

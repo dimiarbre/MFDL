@@ -13,6 +13,7 @@ def plot_factorization(
     title: Optional[str] = None,
     details: Optional[str] = None,
     save_name_properties: Optional[str] = None,
+    debug: bool = False,
 ):
     plt.figure()
     plt.imshow(C_matrix, cmap="bwr")
@@ -28,22 +29,28 @@ def plot_factorization(
     if title is not None:
         plt.title(title)
     plt.tight_layout()
-    if save_name_properties is not None:
+    if debug:
+        plt.show()
+    elif save_name_properties is not None:
+        os.makedirs("figures/optimal_factorization", exist_ok=True)
         plt.savefig(
-            f"figures/optimal_factorization_{save_name_properties}.pdf", format="pdf"
+            f"figures/optimal_factorization/{save_name_properties}.pdf", format="pdf"
         )
+
+        os.makedirs("figures/optimal_factorization_jpeg", exist_ok=True)
         plt.savefig(
-            f"figures/jpegs_versions/optimal_factorization_{save_name_properties}.jpeg",
+            f"figures/optimal_factorization_jpeg/{save_name_properties}.jpeg",
             dpi=300,
         )
 
 
-def plot_housing_results(all_test_losses, num_steps, details, experiment_properties):
+def plot_housing_results(
+    all_test_losses, num_steps, details, experiment_properties, debug: bool = False
+):
     plt.figure()
     for name, test_losses in all_test_losses.items():
         # Plot the min and max
 
-        print(test_losses.shape)
         avg_loss = test_losses.mean(axis=1)
         min_loss = test_losses.min(axis=1)
         max_loss = test_losses.max(axis=1)
@@ -63,13 +70,16 @@ def plot_housing_results(all_test_losses, num_steps, details, experiment_propert
     plt.figtext(
         0.5, 0.005, details, wrap=True, horizontalalignment="center", fontsize=10
     )
-    plt.tight_layout()
-
-    # Ensure the figures directory exists
-    os.makedirs("figures", exist_ok=True)
-    # Create a unique filename with experiment details
-    fig_filename = f"figures/housing_{experiment_properties}.pdf"
     plt.gcf().set_size_inches(10, 6)
     plt.tight_layout()
-    plt.savefig(fig_filename, bbox_inches="tight", dpi=200, format="pdf")
-    print(f"Figure saved to {fig_filename}")
+    if debug:
+        plt.show()
+    else:
+        # Ensure the figures directory exists
+        os.makedirs("figures/housing", exist_ok=True)
+        # Create a unique filename with experiment details
+        fig_filename = f"figures/housing/{experiment_properties}.pdf"
+
+        plt.savefig(fig_filename, bbox_inches="tight", dpi=200, format="pdf")
+        print(f"Figure saved to {fig_filename}")
+    return
