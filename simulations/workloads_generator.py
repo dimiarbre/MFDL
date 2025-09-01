@@ -8,7 +8,6 @@ from scipy.linalg import toeplitz
 def get_pi(nb_nodes, nb_iterations):
     """
     Generates Pi in the paper: converts a node-wise indexing to the general time-wise index.
-    Uses advanced indexing for efficiency.
     """
     if nb_nodes == 0 or nb_iterations == 0:
         raise ValueError("0-dimensional permutation is not allowed")
@@ -16,6 +15,15 @@ def get_pi(nb_nodes, nb_iterations):
     for t in range(nb_iterations):
         for i in range(nb_nodes):
             permutation[t * nb_nodes + i, i * nb_iterations + t] = 1
+
+    # Check if permutation is a valid permutation matrix
+    if not (
+        np.all(permutation.sum(axis=0) == 1)
+        and np.all(permutation.sum(axis=1) == 1)
+        and np.all((permutation == 0) | (permutation == 1))
+    ):
+        raise ValueError("Generated matrix is not a valid permutation matrix.")
+
     return permutation
 
 
@@ -54,25 +62,36 @@ def compute_sensitivity(
 
     nb_epochs = nb_steps // participation_interval
     participation_mask = utils.get_orthogonal_mask(n=nb_steps, epochs=nb_epochs)
-
-    if np.all(X >= 0):
+    sensitivities = []
+    for i in range(participation_interval):
+        idx = np.arange(i, nb_steps, participation_interval)
+        sensitivities.append(
+            np.sqrt(np.sum(np.abs(X[np.ix_(idx, idx)])))
+        )  # Upper bound on the sensitivity. Should be tight if the matrix X is positive in all elements
+    sens = np.max(np.array(sensitivities))
+    return sens
+    if np.allclose((1 - participation_mask) * X, 0, atol=1e-10):
+        sensitivities = []
+        for i in range(participation_interval):
+            idx = np.arange(i, nb_steps, participation_interval)
+            sensitivities.append(np.sqrt(np.sum(np.abs(X[np.ix_(idx, idx)]))))
+        sens = np.max(np.array(sensitivities))
+    elif np.all(X >= 0):
+        print("Code should never reach here, or one matrix was weird")
         # Using the trick of Corollary 2.1 (https://proceedings.mlr.press/v202/choquette-choo23a/choquette-choo23a.pdf)
         contrib_matrix = build_participation_matrix(
             nb_steps=nb_steps, participation_interval=participation_interval
         )
         sens = np.sqrt(np.max(np.diag(contrib_matrix.T @ X @ contrib_matrix)))
 
-    elif np.allclose((1 - participation_mask) * X, 0, atol=1e-10):
-        diag = np.diag(X)
-        sensitivities = []
-        for i in range(participation_interval):
-            idx = np.arange(i, nb_steps, participation_interval)
-            sensitivities.append(np.sqrt(np.sum(diag[idx] ** 2)))
-        sens = np.max(np.array(sensitivities))
-
     else:
         raise NotImplementedError("Negative matrix factorization")
     return sens
+
+
+def compute_surrogate_loss(workload, C_inv):
+    X = C_inv.T @ C_inv
+    return np.trace(X @ workload)
 
 
 def MF_LDP(nb_nodes, nb_iterations):
@@ -149,6 +168,7 @@ def build_local_DL_workload(matrix: np.ndarray, nb_steps: int, initial_power: in
             + "!" * 50
         )
         # Compute square root using - but problem if this workload is not full rank?
+        # TODO: remove this code, as the result may not be lower triangular? Not sure how the optimization will handle that.
         eigvals, eigvecs = np.linalg.eigh(gram_workload)
         # Set negative eigenvalues to zero (for numerical stability)
         eigvals[eigvals < 0] = 0
