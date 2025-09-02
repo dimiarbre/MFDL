@@ -57,12 +57,14 @@ class MatrixFactorizer:
         workload_matrix: np.ndarray,
         nb_epochs: int,
         equal_norm: bool = False,
+        verbose: bool = False,
     ) -> None:
         self.workload_matrix = workload_matrix
         self.nb_steps = self.workload_matrix.shape[0]
         self.nb_epochs = nb_epochs
         self.equal_norm = equal_norm
         self.mask = utils.get_orthogonal_mask(self.nb_steps, self.nb_epochs)
+        self.verbose = verbose
 
     def project_update(self, dX: np.ndarray) -> np.ndarray:
         """Project dX so that X + alpha*dX satisfies constraints for any alpha.
@@ -150,11 +152,12 @@ class MatrixFactorizer:
         Z = dX
 
         for step in range(iters):
-            print(
-                f"Step: {step}/{iters} - loss {loss1:.2f} - termination condition: {termination_metric(dX):.2e} <= {min_norm:.0e}"
-                + 10 * " ",
-                end="\r",
-            )
+            if self.verbose:
+                print(
+                    f"Step: {step}/{iters} - loss {loss1:.2f} - termination condition: {termination_metric(dX):.2e} <= {min_norm:.0e}"
+                    + 10 * " ",
+                    end="\r",
+                )
             # Check if X is positive semidefinite
             # TODO: Remove
             # print(f"Step {step}: positive & definite: {check_positive_definite(X)}")
@@ -170,7 +173,8 @@ class MatrixFactorizer:
                     break
             if termination_fn(dX=dX, min_norm=min_norm):
                 # Early-return triggered; return X immediately.
-                print("")
+                if self.verbose:
+                    print("")
                 return X
             Z = self.lbfgs_direction(X, dX, X1, dX1)
             X1 = X
