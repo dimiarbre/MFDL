@@ -3,6 +3,7 @@ import optimal_factorization
 import torch
 import utils
 from scipy.linalg import toeplitz
+from utils import profile_memory_usage
 
 
 def get_pi(nb_nodes, nb_iterations):
@@ -50,6 +51,16 @@ def build_participation_matrix(nb_steps: int, participation_interval: int):
 def compute_sensitivity(
     C: np.ndarray, participation_interval: int, nb_steps: int
 ) -> float:
+    """Computes sens(C), assuming cyclic participation
+
+    Args:
+        C (np.ndarray): Encoder matrix
+        participation_interval (int): Participation interval (number of batches in an epoch)
+        nb_steps (int): Total number of steps, should be participation_interval * num_repetitions
+
+    Returns:
+        float: The numeric value of the sensitivity.
+    """
     # Check if C is the zero matrix
     if np.allclose(C, 0):
         return np.inf
@@ -89,6 +100,7 @@ def compute_sensitivity(
     return sens
 
 
+# TODO: Removed this unused function?
 def compute_surrogate_loss(workload, C_inv):
     X = C_inv.T @ C_inv
     return np.trace(X @ workload)
@@ -106,6 +118,7 @@ def MF_ANTIPGD(nb_nodes, nb_iterations):
     return C_global
 
 
+@profile_memory_usage
 def build_DL_workload(
     matrix: np.ndarray, nb_steps: int, initial_power: int = 0
 ) -> np.ndarray:
@@ -132,9 +145,13 @@ def build_DL_workload(
     return time_matrix
 
 
-def build_local_DL_workload(matrix: np.ndarray, nb_steps: int, initial_power: int = 0):
-    """Builds the local version of the DL workload, where each node will have the same local correlation.
-    This is the workload that will be optimized in order to obtain an optimal C such that A = B @ pi@ np.kron(In, C)
+@profile_memory_usage
+def build_local_DL_gram_workload(
+    matrix: np.ndarray, nb_steps: int, initial_power: int = 0
+):
+    """Builds the local version of the DL Gram workload, where each node will have the same local correlation. Will be used to compute ||A @ np.kron(In, np.pinv(C))||.
+    Under this form of correlation, this returns a (smaller) Gram matrix G such that
+    ||A @ np.kron(In, np.pinv(C))|| = np.trace(C.T @ G @ C)
 
     Args:
         matrix (np.ndarray): The graph matrix
@@ -156,14 +173,35 @@ def build_local_DL_workload(matrix: np.ndarray, nb_steps: int, initial_power: in
         Ai = A[:, nb_steps * i : nb_steps * (i + 1)]
         gram_workload += Ai.T @ Ai
 
+    return gram_workload
+
+
+def build_local_DL_workload(matrix: np.ndarray, nb_steps: int, initial_power: int = 0):
+    """Builds the local version of the DL workload, where each node will have the same local correlation.
+    This is the workload that will be optimized in order to obtain an optimal C such that A = B @ pi@ np.kron(In, C)
+
+    Args:
+        matrix (np.ndarray): The graph matrix
+        nb_steps (int): The number of iterations of DL (and communication rounds)
+        initial_power (int, default 0): Initial power of the workload matrix.
+            Defines what power of matrix is in the diagonal.
+            1 is the matrix itself (optimization workload), 0 is Id (privacy workload).
+    """
+
+    gram_workload = build_local_DL_gram_workload(
+        matrix=matrix, nb_steps=nb_steps, initial_power=initial_power
+    )
+
     gram_workload_permuted = optimal_factorization._permute_lower_triangle(
         gram_workload
     )
+
     is_positive_definite = utils.check_positive_definite(gram_workload_permuted)
 
     if is_positive_definite:
         surrogate_workload = np.linalg.cholesky(gram_workload_permuted)
     else:
+        raise NotImplementedError("Non-positive definite Gram workload")
         print(
             "!" * 50
             + "Warning - DL surrogate workload is not definite positive, trying an experimental surrogate workload that may make optimization fail."
@@ -179,13 +217,21 @@ def build_local_DL_workload(matrix: np.ndarray, nb_steps: int, initial_power: in
     return surrogate_workload
 
 
-def MF_OPTIMAL_DL(communication_matrix, nb_nodes, nb_steps, nb_epochs):
+def MF_OPTIMAL_DL(
+    communication_matrix, nb_nodes, nb_steps, nb_epochs, post_average=False
+):
+    # Initial_power dictates wether we start from I in the diagonal or W.
     surrogate_workload = build_local_DL_workload(
-        communication_matrix, nb_steps=nb_steps
+        communication_matrix, nb_steps=nb_steps, initial_power=int(post_average)
     )
     B_optimal, C_optimal = optimal_factorization.get_optimal_factorization(
         surrogate_workload, nb_steps=nb_steps, nb_epochs=nb_epochs
     )
+    if post_average:
+        surrogate_workload = build_local_DL_workload(
+            communication_matrix, nb_steps=nb_steps, initial_power=0
+        )
+        B_optimal = surrogate_workload @ np.linalg.pinv(C_optimal)
     return B_optimal, C_optimal
 
 

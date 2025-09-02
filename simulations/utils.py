@@ -1,3 +1,6 @@
+import time
+import tracemalloc
+
 import networkx as nx
 import numpy as np
 
@@ -77,3 +80,22 @@ def get_communication_matrix(G: nx.Graph) -> np.ndarray:
     matrix = matrix / matrix.sum(axis=1, keepdims=True)
     assert not np.isnan(matrix).any(), "Communication matrix contains NaN values"
     return matrix
+
+
+def profile_memory_usage(func):
+    def wrapper(*args, **kwargs):
+        tracemalloc.start()
+        start_time = time.perf_counter()
+        result = func(*args, **kwargs)
+        end_time = time.perf_counter()
+        current, peak = tracemalloc.get_traced_memory()
+        func_name = func.__name__
+        print(f"Profiled function: {func_name}")
+        print(
+            f"Current memory usage: {current / 10**6:.3f} MB; Peak: {peak / 10**6:.3f} MB"
+        )
+        print(f"Execution time: {end_time - start_time:.6f} seconds")
+        tracemalloc.stop()
+        return result
+
+    return wrapper
