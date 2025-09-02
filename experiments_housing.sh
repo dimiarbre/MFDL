@@ -1,8 +1,15 @@
-num_repetitions=(5 10 100)
+num_repetitions=(5 10 20)
 nb_nodes_list=(4 10 20)
-epsilons=(0.1 1 10)
+epsilons=(0.01 0.1 1 10)
 graph_names=(empty expander complete cycle)
-lrs=(0.01 0.1 1.0)
+lrs=(0.01 0.1)
+
+recompute_flag=""
+for arg in "$@"; do
+    if [[ "$arg" == "--recompute" ]]; then
+        recompute_flag="--recompute"
+    fi
+done
 
 # Preprocessing: count total configurations
 total_configs=0
@@ -31,12 +38,11 @@ for num_repetition in "${num_repetitions[@]}"; do
                 for lr in "${lrs[@]}"; do
                     current_config=$((current_config + 1))
                     echo "Running configuration $current_config / $total_configs"
-                    cmd="python simulations/housing.py --nb_nodes $nb_nodes --lr $lr --num_repetition $num_repetition --nb_micro_batches 16 --graph_name $graph_name --use_optimals --recompute"  
+                    cmd="python simulations/housing.py --nb_nodes $nb_nodes --lr $lr --num_repetition $num_repetition --nb_batches 16 --epsilon $epsilon --graph_name $graph_name --use_optimals $recompute_flag"  
                     echo "$cmd":
                     if ! $cmd; then
                         failed_configs+=("$cmd"\n)
                     fi
-                done
                 done
             done
         done
