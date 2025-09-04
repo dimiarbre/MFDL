@@ -209,3 +209,8 @@ profiles/*.svg
 # Experiments results
 results/
 figures/
+
+# Cached workloads:
+cache/
+
+graphs/

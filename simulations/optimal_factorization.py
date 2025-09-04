@@ -188,17 +188,23 @@ class MatrixFactorizer:
         # C_lower = np.linalg.cholesky(gram_matrix)
         # C_matrix = C_lower.T.astype(self.workload_matrix.dtype)
 
-        B_matrix = self.workload_matrix @ np.linalg.pinv(C_matrix)
-        return B_matrix, C_matrix
+        # B_matrix = self.workload_matrix @ np.linalg.pinv(C_matrix)
+        return C_matrix
 
 
 def get_optimal_factorization(
-    workload, nb_steps: int, nb_epochs: int, optimizer_iterations: int = 10000
-):
-    optimizer = MatrixFactorizer(workload_matrix=workload, nb_epochs=nb_epochs)
+    workload,
+    nb_steps: int,
+    nb_epochs: int,
+    optimizer_iterations: int = 10000,
+    verbose: bool = False,
+) -> np.ndarray:
+    optimizer = MatrixFactorizer(
+        workload_matrix=workload, nb_epochs=nb_epochs, verbose=verbose
+    )
     gram_encoder = optimizer.optimize(optimizer_iterations)
-    B_optimized, C_optimized = optimizer.get_factorization(gram_encoder)
-    return B_optimized, C_optimized
+    C_optimized = optimizer.get_factorization(gram_encoder)
+    return C_optimized
 
 
 def get_optimal_factorization_gram(
@@ -206,15 +212,15 @@ def get_optimal_factorization_gram(
     nb_steps: int,
     nb_epochs: int,
     optimizer_iterations: int = 10000,
-):
+) -> np.ndarray:
     workload = np.linalg.cholesky(_permute_lower_triangle(gram_matrix))
     optimizer = MatrixFactorizer(
         workload_matrix=workload,
         nb_epochs=nb_epochs,
     )
     gram_encoder_C = optimizer.optimize(optimizer_iterations)
-    B_optimized, C_optimized = optimizer.get_factorization(gram_encoder_C)
-    return B_optimized, C_optimized
+    C_optimized = optimizer.get_factorization(gram_encoder_C)
+    return C_optimized
 
 
 if __name__ == "__main__":
@@ -230,10 +236,11 @@ if __name__ == "__main__":
 
     workload = np.tri(nb_steps)
 
-    B_optimized, C_optimized = get_optimal_factorization(
+    C_optimized = get_optimal_factorization(
         workload=workload, nb_steps=nb_steps, nb_epochs=nb_epochs
     )
 
+    B_optimized = workload @ np.linalg.pinv(C_optimized)
     assert np.allclose(workload, B_optimized @ C_optimized)
 
     plt.figure()
@@ -244,16 +251,17 @@ if __name__ == "__main__":
 
     X = C_optimized.T @ C_optimized
 
-    B_optimized_gram, C_optimized_gram = get_optimal_factorization_gram(
+    C_optimized_gram = get_optimal_factorization_gram(
         gram_matrix=workload.T @ workload,
         nb_steps=nb_steps,
         nb_epochs=nb_epochs,
     )
 
+    B_optimized_gram = workload @ np.linalg.pinv(C_optimized_gram)
+
     assert np.allclose(workload, B_optimized_gram @ C_optimized_gram)
 
     plt.figure()
-    # C_optimized = np.linalg.pinv(C_optimized)
     plt.imshow(C_optimized_gram, cmap="bwr")
     plt.clim(-np.abs(C_optimized_gram).max(), np.abs(C_optimized_gram).max())
     plt.colorbar()

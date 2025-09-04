@@ -19,7 +19,6 @@ def plot_factorization(
     plt.imshow(C_matrix, cmap="bwr")
     plt.clim(-np.abs(C_matrix).max(), np.abs(C_matrix).max())
     plt.colorbar()
-    plt.title("C_OPTI_LOCAL")
     # Add experiment details as a subtitle below the plot
     if details is not None:
         plt.subplots_adjust(bottom=0.18)

@@ -1,9 +1,11 @@
+import os
+
 import numpy as np
 import optimal_factorization
 import torch
 import utils
 from scipy.linalg import toeplitz
-from utils import profile_memory_usage
+from utils import graph_require_seed, profile_memory_usage
 
 
 def get_pi(nb_nodes, nb_iterations):
@@ -118,7 +120,7 @@ def MF_ANTIPGD(nb_nodes, nb_iterations):
     return C_global
 
 
-@profile_memory_usage
+# @profile_memory_usage
 def build_DL_workload(
     matrix: np.ndarray, nb_steps: int, initial_power: int = 0
 ) -> np.ndarray:
@@ -145,7 +147,7 @@ def build_DL_workload(
     return time_matrix
 
 
-@profile_memory_usage
+# @profile_memory_usage
 def build_local_DL_gram_workload(
     matrix: np.ndarray, nb_steps: int, initial_power: int = 0
 ):
@@ -176,7 +178,15 @@ def build_local_DL_gram_workload(
     return gram_workload
 
 
-def build_local_DL_workload(matrix: np.ndarray, nb_steps: int, initial_power: int = 0):
+def build_local_DL_workload(
+    matrix: np.ndarray,
+    nb_steps: int,
+    initial_power: int = 0,
+    graph_name=None,
+    seed=None,
+    caching=True,
+    verbose=False,
+):
     """Builds the local version of the DL workload, where each node will have the same local correlation.
     This is the workload that will be optimized in order to obtain an optimal C such that A = B @ pi@ np.kron(In, C)
 
@@ -186,7 +196,27 @@ def build_local_DL_workload(matrix: np.ndarray, nb_steps: int, initial_power: in
         initial_power (int, default 0): Initial power of the workload matrix.
             Defines what power of matrix is in the diagonal.
             1 is the matrix itself (optimization workload), 0 is Id (privacy workload).
+        graph_name (optional str): only used for caching, name of the graph
+        seed (optional int): seed to generate the graph, only used for caching.
     """
+    nb_nodes = len(matrix)
+    cache_dir = f"cache/workloads/surrogate_workload/{graph_name}/nodes{nb_nodes}/steps{nb_steps}/"
+    cache_filename = f"local_DL_diagonalpower{initial_power}"
+
+    if graph_name is None:
+        caching = False
+    elif graph_require_seed(graph_name):
+        if seed is None:
+            caching = False
+        else:
+            cache_filename += f"_seed{seed}"
+
+    if caching:
+        cache_result = get_from_cache(
+            cache_dir=cache_dir, filename=cache_filename, verbose=verbose
+        )
+        if cache_result is not None:
+            return cache_result
 
     gram_workload = build_local_DL_gram_workload(
         matrix=matrix, nb_steps=nb_steps, initial_power=initial_power
@@ -202,45 +232,152 @@ def build_local_DL_workload(matrix: np.ndarray, nb_steps: int, initial_power: in
         surrogate_workload = np.linalg.cholesky(gram_workload_permuted)
     else:
         raise NotImplementedError("Non-positive definite Gram workload")
-        print(
-            "!" * 50
-            + "Warning - DL surrogate workload is not definite positive, trying an experimental surrogate workload that may make optimization fail."
-            + "!" * 50
+    if caching:
+        save_to_cache(
+            cache_dir=cache_dir,
+            filename=cache_filename,
+            matrix=surrogate_workload,
+            verbose=verbose,
         )
-        # Compute square root using - but problem if this workload is not full rank?
-        # TODO: remove this code, as the result may not be lower triangular? Not sure how the optimization will handle that.
-        eigvals, eigvecs = np.linalg.eigh(gram_workload)
-        # Set negative eigenvalues to zero (for numerical stability)
-        eigvals[eigvals < 0] = 0
-        surrogate_workload = eigvecs @ np.diag(np.sqrt(eigvals))
-
     return surrogate_workload
 
 
+def get_from_cache(cache_dir, filename, verbose=False):
+    cache_path = os.path.join(cache_dir, filename + ".npy")
+    # Try to load from cache
+    if os.path.exists(cache_path):
+        if verbose:
+            print(f"Loading from cache {cache_path}")
+        with open(cache_path, "rb") as f:
+            C_optimal = np.load(f)
+        return C_optimal
+    return None
+
+
+def save_to_cache(cache_dir, filename, matrix: np.ndarray, verbose=False):
+    cache_path = os.path.join(cache_dir, filename + ".npy")
+    os.makedirs(cache_dir, exist_ok=True)
+    with open(cache_path, "wb") as f:
+        np.save(f, matrix)
+    if verbose:
+        size_mb = os.path.getsize(cache_path) / (1024 * 1024)
+        print(f"Saved {size_mb:.2f} MB to cache {cache_path} ")
+
+
 def MF_OPTIMAL_DL(
-    communication_matrix, nb_nodes, nb_steps, nb_epochs, post_average=False
-):
-    # Initial_power dictates wether we start from I in the diagonal or W.
-    surrogate_workload = build_local_DL_workload(
-        communication_matrix, nb_steps=nb_steps, initial_power=int(post_average)
-    )
-    B_optimal, C_optimal = optimal_factorization.get_optimal_factorization(
-        surrogate_workload, nb_steps=nb_steps, nb_epochs=nb_epochs
-    )
-    if post_average:
-        surrogate_workload = build_local_DL_workload(
-            communication_matrix, nb_steps=nb_steps, initial_power=0
+    communication_matrix,
+    nb_nodes,
+    nb_steps,
+    nb_epochs,
+    post_average=False,
+    graph_name=None,
+    seed=None,
+    caching=True,
+    verbose=False,
+) -> np.ndarray:
+    """
+    Lazy loader for optimal DL factorization. Caches results to disk for repeated calls.
+
+    Args:
+        communication_matrix: np.ndarray, the communication matrix.
+        nb_nodes: int, number of nodes.
+        nb_steps: int, number of steps.
+        nb_epochs: int, number of epochs.
+        post_average: bool, whether to use post-averaging.
+        graph_name: str, unique name for the graph (required for caching).
+        seed: int, optional seed for uniqueness.
+        caching: bool, optional, default to True: wether to try and save intermediate workloads to cache.
+
+    Returns:
+        C_optimal
+    """
+    cache_dir = f"cache/correlations_matrixes/{graph_name}/nodes{nb_nodes}/steps{nb_steps}/epochs{nb_epochs}/"
+    cache_filename = f"OptimalDL_{'PostAVG' if post_average else "Msg"}"
+
+    if graph_name is None:
+        caching = False
+    elif graph_require_seed(graph_name):
+        if seed is None:
+            caching = False
+        else:
+            cache_filename += f"_seed{seed}"
+
+    if caching:
+        cache_result = get_from_cache(
+            cache_dir=cache_dir, filename=cache_filename, verbose=verbose
         )
-        B_optimal = surrogate_workload @ np.linalg.pinv(C_optimal)
-    return B_optimal, C_optimal
+        if cache_result is not None:
+            return cache_result
 
-
-def MF_OPTIMAL_local(communication_matrix, nb_nodes, nb_steps, nb_epochs):
-    centralized_workload = np.tri(nb_steps)
-    B_optimal, C_optimal = optimal_factorization.get_optimal_factorization(
-        centralized_workload, nb_steps=nb_steps, nb_epochs=nb_epochs
+    surrogate_workload = build_local_DL_workload(
+        communication_matrix,
+        nb_steps=nb_steps,
+        initial_power=int(post_average),
+        graph_name=graph_name,
+        seed=seed,
+        verbose=verbose,
     )
-    return B_optimal, C_optimal
+    C_optimal = optimal_factorization.get_optimal_factorization(
+        surrogate_workload, nb_steps=nb_steps, nb_epochs=nb_epochs, verbose=verbose
+    )
+
+    # Save to cache
+    if caching:
+        save_to_cache(
+            cache_dir=cache_dir,
+            filename=cache_filename,
+            matrix=C_optimal,
+            verbose=verbose,
+        )
+
+    return C_optimal
+
+
+def MF_OPTIMAL_local(
+    communication_matrix,
+    nb_nodes,
+    nb_steps,
+    nb_epochs,
+    caching=True,
+    verbose=False,
+):
+    """
+    Computes and caches the optimal local factorization.
+
+    Args:
+        communication_matrix: np.ndarray, the communication matrix (unused here).
+        nb_nodes: int, number of nodes.
+        nb_steps: int, number of steps.
+        nb_epochs: int, number of epochs.
+        caching: bool, optional, default to True.
+
+    Returns:
+        C_optimal: np.ndarray, the optimal factorization matrix.
+    """
+    cache_dir = f"cache/centralized/steps{nb_steps}/epochs{nb_epochs}"
+    cache_filename = f"optimal_local"
+
+    if caching:
+        cache_result = get_from_cache(
+            cache_dir=cache_dir, filename=cache_filename, verbose=verbose
+        )
+        if cache_result is not None:
+            return cache_result
+
+    centralized_workload = np.tri(nb_steps)
+    C_optimal = optimal_factorization.get_optimal_factorization(
+        centralized_workload, nb_steps=nb_steps, nb_epochs=nb_epochs, verbose=verbose
+    )
+
+    if caching:
+        save_to_cache(
+            cache_dir=cache_dir,
+            filename=cache_filename,
+            matrix=C_optimal,
+            verbose=verbose,
+        )
+
+    return C_optimal
 
 
 def space_to_time_permutation_matrix(nb_steps: int, nb_nodes: int):

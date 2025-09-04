@@ -11,6 +11,7 @@ import plotters
 import scienceplots
 import utils
 import workloads_generator
+from utils import GraphName
 
 FactorizationName = Literal[
     "LDP",
@@ -37,6 +38,8 @@ def workload_wrapper(
     nb_nodes,
     nb_iterations,
     nb_epochs,
+    graph_name=None,
+    seed=None,
 ):
     match workload_name:
         case "LDP":
@@ -52,31 +55,32 @@ def workload_wrapper(
                 nb_iterations=nb_iterations
             )
         case "OPTIMAL_LOCAL":
-            _, C = workloads_generator.MF_OPTIMAL_local(
+            return workloads_generator.MF_OPTIMAL_local(
                 communication_matrix=communication_matrix,  # Unused argument
                 nb_nodes=1,  # Unused argument
                 nb_steps=nb_iterations,
                 nb_epochs=nb_epochs,
             )
-            return C
         case "OPTIMAL_DL_MSG":
-            _, C = workloads_generator.MF_OPTIMAL_DL(
+            return workloads_generator.MF_OPTIMAL_DL(
                 communication_matrix=communication_matrix,
                 nb_nodes=nb_nodes,
                 nb_steps=nb_iterations,
                 nb_epochs=nb_epochs,
                 post_average=False,
+                graph_name=graph_name,
+                seed=seed,
             )
-            return C
         case "OPTIMAL_DL_POSTAVG":
-            _, C = workloads_generator.MF_OPTIMAL_DL(
+            return workloads_generator.MF_OPTIMAL_DL(
                 communication_matrix=communication_matrix,
                 nb_nodes=nb_nodes,
                 nb_steps=nb_iterations,
                 nb_epochs=nb_epochs,
                 post_average=True,
+                graph_name=graph_name,
+                seed=seed,
             )
-            return C
         case _:
             raise NotImplementedError(
                 f"Did not find a workload strategy {workload_name}"
@@ -97,7 +101,7 @@ def evaluate_loss(gram_workload, C, participation_interval, nb_iterations):
 
 
 def run_experiment(
-    graph_name: str,
+    graph_name: GraphName,
     nb_nodes: int,
     nb_repetition: int,
     participation_interval: int,
@@ -115,8 +119,12 @@ def run_experiment(
     np.random.seed(seed)
 
     # Setup
-    G = utils.get_graph(graph_name, nb_nodes)
-    assert nb_nodes == G.number_of_nodes(), "The number of node was changed"
+    G = utils.get_graph(graph_name, nb_nodes, seed=seed)
+    if nb_nodes != G.number_of_nodes():
+        assert (
+            graph_name == "florentine"
+        ), "The number of node was changed on a non-florentine graph!"
+        nb_nodes = G.number_of_nodes()
     communication_matrix = utils.get_communication_matrix(G)
 
     nb_steps = nb_repetition * participation_interval
@@ -140,6 +148,8 @@ def run_experiment(
             nb_nodes=nb_nodes,
             nb_iterations=nb_steps,
             nb_epochs=nb_repetition,
+            graph_name=graph_name,
+            seed=seed,
         )
         elapsed_time = time.time() - start_time
         # plotters.plot_factorization(np.linalg.pinv(C), factorization_name + "+ $C^+$")

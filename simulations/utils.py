@@ -1,5 +1,6 @@
 import time
 import tracemalloc
+from typing import Literal
 
 import networkx as nx
 import numpy as np
@@ -15,8 +16,22 @@ def expander_graph(n, d):
     return G
 
 
-def get_graph(name: str, n: int) -> nx.Graph:
+GraphName = Literal[
+    "expander",
+    "empty",
+    "cycle",
+    "complete",
+    "erdos",
+    "grid",
+    "star",
+    "florentine",
+    "ego",
+]
+
+
+def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
     G: nx.Graph
+    assert n >= 0, f"Should not make star graph with {n} nodes"
     match name:
         case "expander":
             if n == 1:
@@ -43,12 +58,63 @@ def get_graph(name: str, n: int) -> nx.Graph:
             G = nx.cycle_graph(n)
         case "complete":
             G = nx.complete_graph(n)
+        case "erdos":
+            G = nx.erdos_renyi_graph(n, np.log(n) / n, seed=seed)
+        case "grid":
+            if int(np.sqrt(n)) ** 2 != n:
+                raise ValueError(
+                    f"Grid graph requires n to be a perfect square, got n={n}"
+                )
+            side = int(np.sqrt(n))
+            G = nx.grid_2d_graph(side, side)
+            G = nx.convert_node_labels_to_integers(G)
+        case "star":
+            if n == 1:
+                G = nx.empty_graph(n)
+            else:
+                G = nx.star_graph(n - 1)
+        case "florentine":
+            G = nx.florentine_families_graph()
+            # Convert indexes to int for florentine graph
+            # print(f"Number of nodes: {G.number_of_nodes()}")
+            G = nx.convert_node_labels_to_integers(G)
+            # print(f"Number of nodes: {G.number_of_nodes()}")
+        case "ego":
+            name_edgelist = "graphs/facebook/" + str(414) + ".edges"
+            my_graph = nx.read_edgelist(name_edgelist)
+            my_graph = nx.relabel_nodes(my_graph, lambda x: int(x))
+            Gcc = sorted(nx.connected_components(my_graph), key=len, reverse=True)
+            G = my_graph.subgraph(Gcc[0]).copy()
+            G = nx.convert_node_labels_to_integers(G, label_attribute="fb_id")
+            print(f"Nodes: {G.number_of_nodes()}")
         case _:
             raise ValueError(f"Invalid graph name {name}")
     G.add_edges_from(
         [(i, i) for i in range(G.number_of_nodes())]
     )  # Always keep this to make a useful graph
     return G
+
+
+def graph_require_seed(graph_name: GraphName) -> bool:
+    if graph_name in [
+        "star",
+        "grid",
+        "complete",
+        "cycle",
+        "empty",
+        "expander",
+        "florentine",
+        "ego",
+    ]:
+        return False
+    elif graph_name in [
+        "erdos",
+    ]:
+        return True
+    else:
+        raise NotImplementedError(
+            f"Did not implement wether graph {graph_name} requires a seed"
+        )
 
 
 def get_orthogonal_mask(n: int, epochs: int = 1) -> np.ndarray:
