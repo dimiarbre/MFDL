@@ -84,12 +84,6 @@ def compute_sensitivity(
     return sens
 
 
-# TODO: Removed this unused function?
-def compute_surrogate_loss(workload, C_inv):
-    X = C_inv.T @ C_inv
-    return np.trace(X @ workload)
-
-
 def MF_LDP(nb_nodes, nb_iterations):
     C = np.identity(nb_nodes * nb_iterations)
     return C
