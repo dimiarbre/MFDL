@@ -291,10 +291,14 @@ def MF_OPTIMAL_DL(
         if cache_result is not None:
             return cache_result
 
+    # If post_average==True, we want W in the diagonal since we consider the optimization workload (after averaging), wich corresponds to diag(W) @ \tilde(W) in the paper.
+    # If it is false, we instead want \tilde(W) the attacker workload.
+    initial_power = int(post_average)
+
     surrogate_workload = build_local_DL_workload(
         communication_matrix,
         nb_steps=nb_steps,
-        initial_power=int(post_average),
+        initial_power=initial_power,
         graph_name=graph_name,
         seed=seed,
         verbose=verbose,
