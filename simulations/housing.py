@@ -149,6 +149,7 @@ def run_decentralized_training(
     data_iters = [iter(trainloaders[i]) for i in range(num_nodes)]
 
     test_losses: list[list[float]] = [[] for _ in range(num_nodes)]
+    train_losses: list[list[float]] = [[] for _ in range(num_nodes)]
 
     for step in range(num_steps):
         print(f"Step {step + 1:>{len(str(num_steps))}}/{num_steps}", end="\r")
@@ -161,14 +162,21 @@ def run_decentralized_training(
             device=device,
         )
         average_step(graph, models)
-        step_losses = evaluate_models(models, testloader, device)
-        for node_id, loss in enumerate(step_losses):
+        step_test_losses = evaluate_models(models, testloader, device)
+        step_train_losses = [
+            evaluate_models([model], trainloaders[node], device)[0]
+            for node, model in enumerate(models)
+        ]
+        for node_id, loss in enumerate(step_test_losses):
             test_losses[node_id].append(loss)
+        for node_id, loss in enumerate(step_train_losses):
+            train_losses[node_id].append(loss)
 
-    # Test losses of shape [nb_steps, nb_nodes]. Time is the 1st axis, nodes the second.
+    # Losses of shape [nb_steps, nb_nodes]. Time is the 1st axis, nodes the second.
     res_test_losses = np.array(test_losses).T
+    res_train_losses = np.array(train_losses).T
     print(f"Simulation needed {nb_resets} passes through the dataset")
-    return models, res_test_losses
+    return models, res_test_losses, res_train_losses
 
 
 def split_data(
@@ -290,7 +298,7 @@ def run_simulation(
     print(f"sens²(C_{name}) = {sens**2}")
 
     start_time = time.time()
-    _, test_losses = run_decentralized_training(
+    _, test_losses, train_losses = run_decentralized_training(
         G,
         num_steps=num_steps,
         C=C,
@@ -304,7 +312,7 @@ def run_simulation(
     )
     elapsed_time = time.time() - start_time
     print(f"{name}: Training took {elapsed_time:.2f} seconds.")
-    return name, test_losses
+    return name, test_losses, train_losses
 
 
 def run_experiment(
@@ -314,7 +322,7 @@ def run_experiment(
     graph_name: GraphName = "expander",
     epsilon: float = 1.0,
     num_repetition=5,
-    dataloader_seed=421,
+    seed=421,
     lr=1e-1,
     nb_big_batches=16,
     recompute: bool = False,
@@ -324,7 +332,7 @@ def run_experiment(
     device = torch.device(device_name)
     print(f"Device : {device}")
 
-    G = get_graph(graph_name, nb_nodes, seed=dataloader_seed)
+    G = get_graph(graph_name, nb_nodes, seed=seed)
     nb_nodes = G.number_of_nodes()
     communication_matrix = get_communication_matrix(G)
 
@@ -354,7 +362,7 @@ def run_experiment(
         f"nbbatches{nb_big_batches}_"
         f"mbps{micro_batches_per_step}_"
         f"lr{lr}_"
-        f"seed{dataloader_seed}_"
+        f"seed{seed}_"
         f"mbsize{micro_batches_size}_"
         f"steps{num_steps}_"  # Should be redundant
     )
@@ -380,6 +388,7 @@ def run_experiment(
     C_BSR_LOCAL = workloads_generator.BSR_local_factorization(nb_iterations=num_steps)
 
     all_test_losses = {}
+    all_train_losses = {}
 
     configs = [
         ("Unnoised baseline", C_NONOISE),
@@ -413,7 +422,7 @@ def run_experiment(
             nb_epochs=num_repetition,
             post_average=False,
             graph_name=graph_name,
-            seed=dataloader_seed,
+            seed=seed,
             caching=True,
             verbose=True,
         )
@@ -429,7 +438,7 @@ def run_experiment(
             nb_epochs=num_repetition,
             post_average=True,
             graph_name=graph_name,
-            seed=dataloader_seed,
+            seed=seed,
             caching=True,
             verbose=True,
         )
@@ -491,7 +500,7 @@ def run_experiment(
         "input_dim": input_dim,
         "device_name": device_name,
         "nb_micro_batches": nb_micro_batches_val,
-        "dataloader_seed": dataloader_seed,
+        "dataloader_seed": seed,
         "lr": lr,
         "micro_batches_size": micro_batches_size,
     }
@@ -506,12 +515,15 @@ def run_experiment(
         with concurrent.futures.ProcessPoolExecutor(mp_context=context) as executor:
             results = list(executor.map(run_simulation_partial, configs))
 
-    for name, test_losses in results:
+    for name, test_losses, train_losses in results:
         all_test_losses[name] = test_losses
+        all_train_losses[name] = train_losses
 
     # Organize results into a DataFrame
     records = []
-    for name, test_losses in all_test_losses.items():
+    for name in all_test_losses.keys():
+        test_losses = all_test_losses[name]
+        train_losses = all_train_losses[name]
         for step in range(test_losses.shape[0]):
             for node in range(test_losses.shape[1]):
                 records.append(
@@ -520,9 +532,9 @@ def run_experiment(
                         "step": step,
                         "node": node,
                         "test_loss": test_losses[step, node],
+                        "train_loss": train_losses[step, node],
                     }
                 )
-
     df = pd.DataFrame(records)
     # Add experiment parameters to the DataFrame for each record
     df["graph_name"] = graph_name
@@ -610,7 +622,7 @@ def main():
         graph_name=args.graph_name,
         num_repetition=args.num_repetition,
         epsilon=args.epsilon,
-        dataloader_seed=args.dataloader_seed,
+        seed=args.dataloader_seed,
         lr=args.lr,
         nb_big_batches=args.nb_batches,
         debug=args.debug,
