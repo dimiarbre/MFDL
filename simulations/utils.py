@@ -74,7 +74,7 @@ def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
                 G = nx.empty_graph(n)
             else:
                 G = nx.star_graph(n - 1)
-        case "florentine":
+        case "florentine":  # 15 nodes
             G = nx.florentine_families_graph()
             # Convert indexes to int for florentine graph
             # print(f"Number of nodes: {G.number_of_nodes()}")
@@ -144,9 +144,23 @@ def check_positive_definite(matrix: np.ndarray) -> bool:
         return True
 
 
-def get_communication_matrix(G: nx.Graph) -> np.ndarray:
+def get_communication_matrix(
+    G: nx.Graph, metropolis_hasting: bool = False
+) -> np.ndarray:
     matrix: np.ndarray = nx.to_numpy_array(G)
-    matrix = matrix / matrix.sum(axis=1, keepdims=True)
+    if metropolis_hasting:
+        # Set weights according to Metropolis-Hasting
+        n = G.number_of_nodes()
+        degrees = matrix.sum(axis=1)
+        mh_matrix = np.zeros_like(matrix)
+        for i in range(n):
+            for j in range(n):
+                if i != j and matrix[i, j] > 0:
+                    mh_matrix[i, j] = 1 / max(degrees[i], degrees[j])
+            mh_matrix[i, i] = 1 - mh_matrix[i].sum()
+        matrix = mh_matrix
+    else:
+        matrix = matrix / matrix.sum(axis=1, keepdims=True)
     assert not np.isnan(matrix).any(), "Communication matrix contains NaN values"
     return matrix
 
