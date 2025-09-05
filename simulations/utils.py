@@ -6,9 +6,9 @@ import networkx as nx
 import numpy as np
 
 
-def expander_graph(n, d):
+def expander_graph(n, d, seed):
     if d < n:
-        G = nx.random_regular_graph(d, n)
+        G = nx.random_regular_graph(d, n, seed=seed)
     else:
         raise ValueError(
             "Degree d must be less than number of nodes n for a regular graph."
@@ -52,7 +52,7 @@ def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
                     )
                 assert d < n, "Degree d must be less than number of nodes n"
                 assert n % d == 0, "Degree d must divide n"
-                G = expander_graph(n, d)
+                G = expander_graph(n, d, seed)
         case "empty":
             G = nx.empty_graph(n)
         case "cycle":
@@ -104,15 +104,12 @@ def graph_require_seed(graph_name: GraphName) -> bool:
         "complete",
         "cycle",
         "empty",
-        "expander",
         "florentine",
         "ego",
         "chain",
     ]:
         return False
-    elif graph_name in [
-        "erdos",
-    ]:
+    elif graph_name in ["erdos", "expander"]:
         return True
     else:
         raise NotImplementedError(
