@@ -73,8 +73,6 @@ def compute_sensitivity(
         nb_steps % participation_interval == 0
     ), f"Participation Interval {participation_interval} does not divide number of steps {nb_steps}"
 
-    nb_epochs = nb_steps // participation_interval
-    participation_mask = utils.get_orthogonal_mask(n=nb_steps, epochs=nb_epochs)
     sensitivities = []
     for i in range(participation_interval):
         idx = np.arange(i, nb_steps, participation_interval)
@@ -82,23 +80,6 @@ def compute_sensitivity(
             np.sqrt(np.sum(np.abs(X[np.ix_(idx, idx)])))
         )  # Upper bound on the sensitivity. Should be tight if the matrix X is positive in all elements
     sens = np.max(np.array(sensitivities))
-    return sens
-    if np.allclose((1 - participation_mask) * X, 0, atol=1e-10):
-        sensitivities = []
-        for i in range(participation_interval):
-            idx = np.arange(i, nb_steps, participation_interval)
-            sensitivities.append(np.sqrt(np.sum(np.abs(X[np.ix_(idx, idx)]))))
-        sens = np.max(np.array(sensitivities))
-    elif np.all(X >= 0):
-        print("Code should never reach here, or one matrix was weird")
-        # Using the trick of Corollary 2.1 (https://proceedings.mlr.press/v202/choquette-choo23a/choquette-choo23a.pdf)
-        contrib_matrix = build_participation_matrix(
-            nb_steps=nb_steps, participation_interval=participation_interval
-        )
-        sens = np.sqrt(np.max(np.diag(contrib_matrix.T @ X @ contrib_matrix)))
-
-    else:
-        raise NotImplementedError("Negative matrix factorization")
     return sens
 
 
