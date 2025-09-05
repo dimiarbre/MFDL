@@ -10,7 +10,8 @@ from utils import graph_require_seed, profile_memory_usage
 
 def get_pi(nb_nodes, nb_iterations):
     """
-    Generates Pi in the paper: converts a node-wise indexing to the general time-wise index.
+    Generates a permutation matrix that goes from a spatial repartition (n*T) to a temporal repartion (T*n).
+    It returns a matrix Pi. If X is a vector composed of nb_nodes blocks of nb_steps values, then Pi @ X is a permutation of this vector composed of nb_steps blocks of nb_nodes values
     """
     if nb_nodes == 0 or nb_iterations == 0:
         raise ValueError("0-dimensional permutation is not allowed")
@@ -359,19 +360,6 @@ def MF_OPTIMAL_local(
         )
 
     return C_optimal
-
-
-def space_to_time_permutation_matrix(nb_steps: int, nb_nodes: int):
-    """
-    Generates a permutation matrix that goes from a spatial repartition (n*T) to a temporal repartion (T*n).
-    It returns a matrix Pi. If X is a vector composed of nb_nodes blocks of nb_steps values, then Pi @ X is a permutation of this vector composed of nb_steps blocks of nb_nodes values
-    """
-    pi = np.zeros((nb_nodes * nb_steps, nb_steps * nb_nodes))
-
-    for i in range(nb_nodes):
-        for t in range(nb_steps):
-            pi[nb_nodes * t + i][nb_steps * i + t] = 1
-    return pi
 
 
 def BSR_local_factorization(nb_iterations):
