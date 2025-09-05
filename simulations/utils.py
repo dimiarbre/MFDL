@@ -26,6 +26,7 @@ GraphName = Literal[
     "star",
     "florentine",
     "ego",
+    "chain",
 ]
 
 
@@ -86,7 +87,8 @@ def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
             Gcc = sorted(nx.connected_components(my_graph), key=len, reverse=True)
             G = my_graph.subgraph(Gcc[0]).copy()
             G = nx.convert_node_labels_to_integers(G, label_attribute="fb_id")
-            print(f"Nodes: {G.number_of_nodes()}")
+        case "chain":
+            G = nx.path_graph(n)
         case _:
             raise ValueError(f"Invalid graph name {name}")
     G.add_edges_from(
@@ -105,6 +107,7 @@ def graph_require_seed(graph_name: GraphName) -> bool:
         "expander",
         "florentine",
         "ego",
+        "chain",
     ]:
         return False
     elif graph_name in [
