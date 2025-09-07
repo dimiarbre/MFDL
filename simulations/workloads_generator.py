@@ -51,10 +51,46 @@ def build_participation_matrix(nb_steps: int, participation_interval: int):
     return m
 
 
+def compute_cyclic_repetitions(
+    X: np.ndarray,
+    participation_interval: int,
+    nb_steps: int,
+    nb_nodes: int,
+) -> float:
+    """Compute "max(sum(|X_{s,t}|))" under the cyclic participation schema.
+    X will mostly be given by other functions, as it allows for optimization in some cases.
+
+    Args:
+        X (np.ndarray): Gram workload
+        participation_interval (int): Interval of the cycle for a local node
+        nb_steps (int): number of total steps of the system
+        nb_nodes (int): _description_
+
+    Returns:
+        float: _description_
+    """
+    sensitivities = []
+    for node in range(nb_nodes):
+        for t in range(participation_interval):
+
+            # Implement cyclic participation for a given node
+            # This corresponds to a participation every participation_interval * nb_nodes in G
+            idx = np.arange(
+                t * nb_nodes + node,
+                nb_steps * nb_nodes,
+                participation_interval * nb_nodes,
+            )
+            sensitivities.append(
+                np.sqrt(np.sum(np.abs(X[np.ix_(idx, idx)])))
+            )  # Upper bound on the sensitivity. Should be tight if the matrix X is positive in all elements
+    sens = np.max(np.array(sensitivities))
+    return sens
+
+
 def compute_sensitivity(
     C: np.ndarray, participation_interval: int, nb_steps: int
 ) -> float:
-    """Computes sens(C), assuming cyclic participation
+    """Computes sens(C) for a LOCAL encoder matrix C, assuming cyclic participation and square (and invertible) decoder matrix B.
 
     Args:
         C (np.ndarray): Encoder matrix
@@ -64,6 +100,14 @@ def compute_sensitivity(
     Returns:
         float: The numeric value of the sensitivity.
     """
+    assert (
+        C.shape[0] == C.shape[1]
+    ), f"compute_sensitivity should only consider squared factorization, got shape {C.shape}. For more general cases, use compute_sensitivity_rectangularworkload"
+    assert nb_steps == len(
+        C
+    ), f"C should be of size nb_steps, but got {len(C)} instead of {nb_steps}"
+    # TODO: remove the unnecessary argument, and recompute nb_steps manually from this
+
     # Check if C is the zero matrix
     if np.allclose(C, 0):
         return np.inf
@@ -74,14 +118,46 @@ def compute_sensitivity(
         nb_steps % participation_interval == 0
     ), f"Participation Interval {participation_interval} does not divide number of steps {nb_steps}"
 
-    sensitivities = []
-    for i in range(participation_interval):
-        idx = np.arange(i, nb_steps, participation_interval)
-        sensitivities.append(
-            np.sqrt(np.sum(np.abs(X[np.ix_(idx, idx)])))
-        )  # Upper bound on the sensitivity. Should be tight if the matrix X is positive in all elements
-    sens = np.max(np.array(sensitivities))
+    sens = compute_cyclic_repetitions(X, participation_interval, nb_steps, nb_nodes=1)
     return sens
+
+
+def compute_sensitivity_rectangularworkload(
+    B: np.ndarray,
+    C: np.ndarray,
+    participation_interval: int,
+    nb_steps: int,
+) -> float:
+    """Computes sens( G -> QCG) for a GLOBAL encoder matrix C, assuming cyclic participation (and same cycle for all nodes).
+    This is the formulat max(sum_{s,t}(|C.T @ B^+ @ B @ C|_{s,t})).
+    You should prefer compute_sensitivity when considering a square and local workload, as this approach is much less efficient.
+
+    Args:
+        B (np.ndarray): Decoder matrix
+        C (np.ndarray): Encoder matrix
+        participation_interval (int): Participation interval (number of batches in an epoch)
+        nb_steps (int): Total number of steps, should be participation_interval * num_repetitions
+
+    Returns:
+        float: The numeric value of the sensitivity.
+    """
+    assert (
+        C.shape[1] % nb_steps == 0
+    ), "Dimension is not divided by the number of steps."
+    nb_nodes = C.shape[1] // nb_steps
+    assert (
+        nb_steps % participation_interval == 0
+    ), f"Participation Interval {participation_interval} does not divide number of steps {nb_steps}"
+
+    # WARNING: this is a hefty computation that will lead to errors.
+    X = C.T @ np.linalg.pinv(B) @ B @ C
+
+    return compute_cyclic_repetitions(
+        X,
+        participation_interval=participation_interval,
+        nb_steps=nb_steps,
+        nb_nodes=nb_nodes,
+    )
 
 
 def MF_LDP(nb_nodes, nb_iterations):
@@ -375,3 +451,31 @@ def BSR_local_factorization(nb_iterations):
     #
     C = toeplitz(y)
     return C
+
+
+def build_projection_workload(
+    communication_matrix: np.ndarray, attacker_node: int, nb_steps: int
+) -> np.ndarray:
+    """Builds P(attacker_node), the projection workload. Should be used with tilde(W) in the paper, or P @ build_local_dl_workload(.., initial_power=0).
+
+    Args:
+        communication_matrix (np.ndarray): The communication matrix
+        attacker_node (int): The id of the attacking node
+        nb_steps (int): Number of steps, to know how many repetitions of the workload will be needed.
+
+    Returns:
+        P (np.ndarray): _description_
+    """
+    n = len(communication_matrix)
+
+    # First, create a projection matrix for a given communication matrix
+    projection_lines = []
+    for i in range(n):
+        if communication_matrix[attacker_node, i] > 0:
+            projection_line = np.zeros((n))
+            projection_line[i] = 1
+            projection_lines.append(projection_line)
+
+    projection_matrix = np.array(projection_lines)
+    projection_workload = np.kron(np.identity(nb_steps), projection_matrix)
+    return projection_workload
