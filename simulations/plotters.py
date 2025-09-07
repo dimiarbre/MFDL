@@ -44,7 +44,13 @@ def plot_factorization(
 
 
 def plot_housing_results(
-    all_test_losses, num_steps, details, experiment_properties, debug: bool = False
+    all_test_losses,
+    num_steps,
+    details,
+    experiment_properties,
+    debug: bool = False,
+    log_scale: bool = False,
+    min_max: bool = True,
 ):
     plt.figure()
     for name, test_losses in all_test_losses.items():
@@ -55,8 +61,11 @@ def plot_housing_results(
         max_loss = test_losses.max(axis=1)
 
         (line,) = plt.plot(range(num_steps), avg_loss, label=name)
-        color = line.get_color()
-        plt.fill_between(range(num_steps), min_loss, max_loss, alpha=0.2, color=color)
+        if min_max:
+            color = line.get_color()
+            plt.fill_between(
+                range(num_steps), min_loss, max_loss, alpha=0.2, color=color
+            )
 
     plt.legend()
     plt.grid()
@@ -64,6 +73,11 @@ def plot_housing_results(
     plt.title("Test losses per model")
     plt.xlabel("Communication rounds")
     plt.ylabel("Test loss")
+
+    if log_scale:
+        plt.yscale("log")
+        plt.ylabel("log(Test loss)")
+
     # Add experiment details as a subtitle below the plot
     plt.subplots_adjust(bottom=0.18)
     plt.figtext(
