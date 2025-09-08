@@ -51,6 +51,38 @@ def build_participation_matrix(nb_steps: int, participation_interval: int):
     return m
 
 
+def compute_cyclic_repetitions_1node(
+    X: np.ndarray, participation_interval: int, nb_steps: int, nb_nodes: int, node: int
+) -> float:
+    """Compute the sensitivity of a generic workload for a given node.
+    This is useful when considering PNDP: if we want to consider epsilon_{a->b}, then we want to explore sensitivity restrained to node a (as it is the only node that can change)
+
+    Args:
+        X (np.ndarray): Gram workload for sensitivity (C.T @ B.pinv @ B @ C)
+        participation_interval (int): Interval between two participations
+        nb_steps (int): Total number of steps in the process
+        nb_nodes (int): Number of nodes in the system
+        node (int): Node id with regards to whom we compute sensitivity. This is the "victim" node whose dataset might change
+
+    Returns:
+        float: Sensitivity for node 'node'
+    """
+    sensitivities = []
+    for t in range(participation_interval):
+        # Implement cyclic participation for a given node
+        # This corresponds to a participation every participation_interval * nb_nodes in G
+        idx = np.arange(
+            t * nb_nodes + node,
+            nb_steps * nb_nodes,
+            participation_interval * nb_nodes,
+        )
+        sensitivities.append(
+            np.sqrt(np.sum(np.abs(X[np.ix_(idx, idx)])))
+        )  # Upper bound on the sensitivity. Should be tight if the matrix X is positive in all elements
+    sens = np.max(np.array(sensitivities))
+    return sens
+
+
 def compute_cyclic_repetitions(
     X: np.ndarray,
     participation_interval: int,
@@ -67,22 +99,19 @@ def compute_cyclic_repetitions(
         nb_nodes (int): _description_
 
     Returns:
-        float: _description_
+        float: The sensitivity of the overall workload, for ALL nodes
     """
     sensitivities = []
     for node in range(nb_nodes):
-        for t in range(participation_interval):
-
-            # Implement cyclic participation for a given node
-            # This corresponds to a participation every participation_interval * nb_nodes in G
-            idx = np.arange(
-                t * nb_nodes + node,
-                nb_steps * nb_nodes,
-                participation_interval * nb_nodes,
+        sensitivities.append(
+            compute_cyclic_repetitions_1node(
+                X,
+                participation_interval=participation_interval,
+                nb_steps=nb_steps,
+                nb_nodes=nb_nodes,
+                node=node,
             )
-            sensitivities.append(
-                np.sqrt(np.sum(np.abs(X[np.ix_(idx, idx)])))
-            )  # Upper bound on the sensitivity. Should be tight if the matrix X is positive in all elements
+        )
     sens = np.max(np.array(sensitivities))
     return sens
 
