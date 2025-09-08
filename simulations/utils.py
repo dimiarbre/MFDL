@@ -61,9 +61,11 @@ def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
             G = nx.complete_graph(n)
         case "erdos":
             connex = False
+            nb_tries = 0
             while not connex:
-                G = nx.erdos_renyi_graph(n, np.log(n) / n, seed=seed)
+                G = nx.erdos_renyi_graph(n, np.log(n) / n, seed=seed + nb_tries)
                 connex = nx.is_connected(G)
+                nb_tries += 1
         case "grid":
             if int(np.sqrt(n)) ** 2 != n:
                 raise ValueError(
