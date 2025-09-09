@@ -107,6 +107,7 @@ def privacy_loss_by_distance(
     attacker,
     participation_interval,
     nb_repetitions,
+    alpha: float,
 ):
     """
     Computes privacy loss as a function of shortest path length from the attacker node.
@@ -130,10 +131,19 @@ def privacy_loss_by_distance(
         if dist not in distance_dict_MF:
             distance_dict_MF[dist] = []
             distance_dict_Muffliato[dist] = []
-        distance_dict_MF[dist].append(sensitivities[node])
+
+        # u-GDP implies (alpha, alpha * u**2 /2)-RDP
+        # and Muffilato is 1/sens(C)-GDP since we do not rescale by the sensitivity.
+        distance_dict_MF[dist].append(alpha * sensitivities[node] ** 2 / 2)
         distance_dict_Muffliato[dist].append(
             epsilon_upper_bound(
-                G=graph, u=node, v=attacker, T=nb_steps, delta_phi=1, alpha=2, sigma=1
+                G=graph,
+                u=node,
+                v=attacker,
+                T=nb_steps,
+                delta_phi=1,
+                alpha=alpha,
+                sigma=1,
             )
         )
 
@@ -147,6 +157,7 @@ def plot_privacy_loss_for_graph(
     attacker: int,
     participation_interval: int,
     nb_repetitions: int,
+    alpha: float,
 ):
     """
     Generates a graph, computes privacy loss, and plots the sensitivity histogram.
@@ -158,6 +169,7 @@ def plot_privacy_loss_for_graph(
         attacker=attacker,
         participation_interval=participation_interval,
         nb_repetitions=nb_repetitions,
+        alpha=alpha,
     )
 
     plt.style.use("science")
@@ -197,15 +209,17 @@ def plot_privacy_loss_for_graph(
             capsize=5,
             label=f"{name} (Min/Max Error)",
         )
-    plt.xlabel("Shortest Path Length from Attacker")
-    plt.ylabel("Privacy loss")
+    plt.xlabel("Shortest Path Length from Attacker", fontsize=18)
+    plt.ylabel("Privacy loss", fontsize=18)
     plt.yscale("log")
     plt.grid()
     plt.title(
-        f"Sensitivity vs. Distance (Averaged over all attackers)\nGraph: {graph_name}, Nodes: {nb_nodes}"
+        f"Privacy loss accounting\nGraph: {graph_name}, {nb_nodes} nodes", fontsize=20
     )
-    plt.legend()
+    plt.tick_params(axis="both", which="major", labelsize=16)
+    plt.legend(fontsize=16)
     plt.tight_layout()
+    plt.savefig("figures/privacy_loss_accounting.pdf")
     plt.show()
 
 
@@ -243,11 +257,12 @@ def plot_privacy_loss_histogram(
 def main():
     # Set parameters
     graph_name = "erdos"
-    nb_nodes = 10
+    nb_nodes = 100
     seed = 42
     attacker = 0
     participation_interval = 1
-    nb_repetitions = 4
+    nb_repetitions = 10
+    alpha = 2
 
     nb_steps = nb_repetitions * participation_interval
 
@@ -259,9 +274,10 @@ def main():
         graph_name=graph_name,
         nb_nodes=nb_nodes,
         seed=seed,
-        attacker=0,
+        attacker=attacker,
         participation_interval=participation_interval,
         nb_repetitions=nb_repetitions,
+        alpha=alpha,
     )
 
 
