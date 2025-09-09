@@ -1,6 +1,9 @@
+import os
+
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+import pandas as pd
 import scienceplots
 import utils
 import workloads_generator
@@ -175,6 +178,8 @@ def plot_privacy_loss_for_graph(
     plt.style.use("science")
     plt.figure(figsize=(10, 6))
 
+    plot_data = []
+
     for name, ploss_dict in (
         ("MF", ploss_dict_MF),
         ("Muffliato-SGD", ploss_dict_Muffliato),
@@ -189,9 +194,22 @@ def plot_privacy_loss_for_graph(
             if distance == 0.0:
                 continue
             distances.append(distance)
-            avg_ploss.append(np.mean(ploss_dict[distance]))
-            min_ploss.append(np.min(ploss_dict[distance]))
-            max_ploss.append(np.max(ploss_dict[distance]))
+            avg_val = np.mean(ploss_dict[distance])
+            min_val = np.min(ploss_dict[distance])
+            max_val = np.max(ploss_dict[distance])
+            avg_ploss.append(avg_val)
+            min_ploss.append(min_val)
+            max_ploss.append(max_val)
+            plot_data.append(
+                {
+                    "approach": name,
+                    "distance": distance,
+                    "avg_privacy_loss": avg_val,
+                    "min_privacy_loss": min_val,
+                    "max_privacy_loss": max_val,
+                }
+            )
+
         # Plot average sensitivity and use its color for error bars
         (avg_line,) = plt.plot(distances, avg_ploss)
         color = avg_line.get_color()
@@ -209,6 +227,9 @@ def plot_privacy_loss_for_graph(
             capsize=5,
             label=f"{name} (Min/Max Error)",
         )
+
+    # Create a pandas DataFrame with all plotting data
+    plot_df = pd.DataFrame(plot_data)
     plt.xlabel("Shortest Path Length from Attacker", fontsize=18)
     plt.ylabel("Privacy loss", fontsize=18)
     plt.yscale("log")
@@ -219,7 +240,18 @@ def plot_privacy_loss_for_graph(
     plt.tick_params(axis="both", which="major", labelsize=16)
     plt.legend(fontsize=16)
     plt.tight_layout()
-    plt.savefig("figures/privacy_loss_accounting.pdf")
+    file_name = (
+        f"privacy_loss_{graph_name}_nodes{nb_nodes}_T{nb_repetitions}_alpha{alpha}"
+    )
+
+    pdf_path = f"figures/accounting/{file_name}.pdf"
+    os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+    plt.savefig(pdf_path)
+
+    csv_path = f"results/accounting/{file_name}.csv"
+    os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+    plot_df.to_csv(csv_path)
+
     plt.show()
 
 
@@ -257,6 +289,7 @@ def plot_privacy_loss_histogram(
 def main():
     # Set parameters
     graph_name = "erdos"
+    # graph_name = "ego"
     nb_nodes = 100
     seed = 42
     attacker = 0
