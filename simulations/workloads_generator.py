@@ -32,6 +32,26 @@ def get_pi(nb_nodes, nb_iterations):
     return permutation
 
 
+def get_pi_reindexing(nb_nodes, nb_iterations):
+    """
+    Returns a reindexing array for the permutation from spatial (n*T) to temporal (T*n) repartition.
+    For example, with 3 nodes and 3 iterations, returns [0, 3, 6, 1, 4, 7, 2, 5, 8].
+    Usage:
+    pi_old = get_pi(nb_nodes, nb_iterations)
+    pi, pi_inv = get_pi_reindexing(nb_nodes, nb_iterations)
+    assert np.allclose(W[pi], pi_old @ W) # For all matrixes W.
+    """
+    if nb_nodes == 0 or nb_iterations == 0:
+        raise ValueError("0-dimensional permutation is not allowed")
+    pi = []
+    for t in range(nb_iterations):
+        for i in range(nb_nodes):
+            pi.append(i * nb_iterations + t)
+    pi_np = np.array(pi)
+    pi_inv = np.argsort(pi)
+    return pi_np, pi_inv
+
+
 def build_participation_matrix(nb_steps: int, participation_interval: int):
     assert nb_steps % participation_interval == 0
     m = np.zeros(shape=(nb_steps, participation_interval))
@@ -204,7 +224,7 @@ def MF_ANTIPGD(nb_nodes, nb_iterations):
 
 # @profile_memory_usage
 def build_DL_workload(
-    matrix: np.ndarray, nb_steps: int, initial_power: int = 0
+    matrix: np.ndarray, nb_steps: int, initial_power: int = 0, verbose: bool = False
 ) -> np.ndarray:
     """Creates the decentralized learning workload from a given matrix.
     Replication keeps spatial structure (e.g. a block in the matrix is a state of the system).
@@ -222,6 +242,8 @@ def build_DL_workload(
     n = matrix.shape[0]
     time_matrix = np.zeros((n * nb_steps, n * nb_steps))
     for i in range(nb_steps):
+        if verbose:
+            print(f"Building diagonal {i:0{len(str(nb_steps))}d}/{nb_steps}", end="\r")
         time_matrix += np.kron(
             np.eye(nb_steps, nb_steps, -i),
             np.linalg.matrix_power(matrix, i + initial_power),
@@ -231,7 +253,13 @@ def build_DL_workload(
 
 # @profile_memory_usage
 def build_local_DL_gram_workload(
-    matrix: np.ndarray, nb_steps: int, initial_power: int = 0
+    matrix: np.ndarray,
+    nb_steps: int,
+    initial_power: int = 0,
+    graph_name=None,
+    seed=None,
+    caching=True,
+    verbose=False,
 ):
     """Builds the local version of the DL Gram workload, where each node will have the same local correlation. Will be used to compute ||A @ np.kron(In, np.pinv(C))||.
     Under this form of correlation, this returns a (smaller) Gram matrix G such that
@@ -245,17 +273,51 @@ def build_local_DL_gram_workload(
             1 is the matrix itself (optimization workload), 0 is Id (privacy workload).
     """
     nb_nodes = matrix.shape[0]
+    cache_dir = f"cache/workloads/surrogate_workload/{graph_name}/nodes{nb_nodes}/steps{nb_steps}/"
+    cache_filename = f"local_gram_DL_diagonalpower{initial_power}"
+
+    if caching:
+        if graph_name is None:
+            caching = False
+        elif graph_require_seed(graph_name):
+            if seed is None:
+                caching = False
+            else:
+                cache_filename += f"_seed{seed}"
+        if caching:
+            cache_result = get_from_cache(
+                cache_dir=cache_dir, filename=cache_filename, verbose=verbose
+            )
+            if cache_result is not None:
+                return cache_result
 
     dl_workload = build_DL_workload(
-        matrix, nb_steps=nb_steps, initial_power=initial_power
+        matrix, nb_steps=nb_steps, initial_power=initial_power, verbose=verbose
     )  # nT * nT
-    pi = get_pi(nb_nodes=nb_nodes, nb_iterations=nb_steps)  # nT * Tn
-    A = dl_workload @ pi
+
+    # # Old way of doing it.
+    # pi = get_pi(nb_nodes=nb_nodes, nb_iterations=nb_steps)  # nT * Tn
+    # A = dl_workload @ pi
+
+    pi, pi_inv = get_pi_reindexing(nb_nodes=nb_nodes, nb_iterations=nb_steps)
+    A = dl_workload[
+        :, pi
+    ]  # Equivalent to the previous A = dl_workload @ pi, see the tests if you want to make sure.
 
     gram_workload = np.zeros((nb_steps, nb_steps))
     for i in range(nb_nodes):
+        if verbose:
+            print(f"Computing A{i}")
         Ai = A[:, nb_steps * i : nb_steps * (i + 1)]
         gram_workload += Ai.T @ Ai
+
+    if caching:
+        save_to_cache(
+            cache_dir=cache_dir,
+            filename=cache_filename,
+            matrix=gram_workload,
+            verbose=verbose,
+        )
 
     return gram_workload
 
@@ -333,6 +395,8 @@ def get_from_cache(cache_dir, filename, verbose=False):
         with open(cache_path, "rb") as f:
             C_optimal = np.load(f)
         return C_optimal
+    if verbose:
+        print(f"Cache miss for {cache_path}")
     return None
 
 
@@ -402,6 +466,7 @@ def MF_OPTIMAL_DL(
         graph_name=graph_name,
         seed=seed,
         verbose=verbose,
+        caching=caching,
     )
     C_optimal = optimal_factorization.get_optimal_factorization(
         surrogate_workload, nb_steps=nb_steps, nb_epochs=nb_epochs, verbose=verbose

@@ -26,10 +26,12 @@ GRAPH_NAMES: list[GraphName] = [
     "star",
     "florentine",
     "ego",
+    "peertube",
 ]
 # GRAPH_NAMES = ["expander", "complete"]
 
 NB_NODES = [10 * i for i in range(1, 11)]
+# NB_NODES = [10 * i for i in range(1, 21)]
 # NB_NODES = [10, 20, 50]
 
 # NB_REPETITIONS = [4, 10]
@@ -73,7 +75,7 @@ def generate_all_configurations(
 
 
 @profile_memory_usage
-def compute_all_experiments(recompute: bool) -> pd.DataFrame:
+def compute_all_experiments(recompute: bool, verbose: bool = False) -> pd.DataFrame:
 
     data_path = "results/factorization/experiment.csv"
     df = pd.DataFrame({})
@@ -108,7 +110,8 @@ def compute_all_experiments(recompute: bool) -> pd.DataFrame:
             assert graph_name in [
                 "florentine",
                 "ego",
-            ], f"The number of node was changed on a non-florentine/ego graph: {graph_name}"
+                "peertube",
+            ], f"The number of node was changed on a non-florentine/ego/peertube graph: {graph_name}"
             # Florentine graph is a special case, with always 30 nodes
             nb_nodes = G.number_of_nodes()
         del G
@@ -135,6 +138,7 @@ def compute_all_experiments(recompute: bool) -> pd.DataFrame:
             nb_repetition=nb_repetition,
             participation_interval=participation_interval,
             seed=seed,
+            verbose=verbose,
         )
         df = pd.concat([df, experiment_results])
         df.to_csv(
@@ -322,6 +326,11 @@ def main():
         action="store_true",
         help="Do not show figures after the experiment, only store them.Useful when estimating timing or running on a server.",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Verbose prints to check progress inside steps.",
+    )
     args = parser.parse_args()
 
     if args.recompute:
@@ -329,7 +338,7 @@ def main():
         if os.path.exists(cache_path):
             shutil.rmtree(cache_path)
 
-    df = compute_all_experiments(args.recompute)
+    df = compute_all_experiments(args.recompute, verbose=args.verbose)
 
     # TODO: Save this
 

@@ -1,10 +1,15 @@
+import os
+import sys
+
 import pytest
 
-from simulations.workloads_generator import (
-    build_participation_matrix,
-    build_participation_matrix_v2,
-    get_pi,
-)
+try:
+    from simulations.workloads_generator import build_participation_matrix, get_pi
+except:
+    sys.path.insert(
+        0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../simulations/"))
+    )
+    from workloads_generator import build_participation_matrix, get_pi
 
 
 @pytest.mark.benchmark(group="get_pi")

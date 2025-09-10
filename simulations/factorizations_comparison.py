@@ -40,6 +40,7 @@ def workload_wrapper(
     nb_epochs,
     graph_name=None,
     seed=None,
+    verbose=False,
 ):
     match workload_name:
         case "LDP":
@@ -70,6 +71,7 @@ def workload_wrapper(
                 post_average=False,
                 graph_name=graph_name,
                 seed=seed,
+                verbose=verbose,
             )
         case "OPTIMAL_DL_POSTAVG":
             return workloads_generator.MF_OPTIMAL_DL(
@@ -80,6 +82,7 @@ def workload_wrapper(
                 post_average=True,
                 graph_name=graph_name,
                 seed=seed,
+                verbose=verbose,
             )
         case _:
             raise NotImplementedError(
@@ -106,6 +109,7 @@ def run_experiment(
     nb_repetition: int,
     participation_interval: int,
     seed: int = 421,
+    verbose=False,
 ):
     """Run experiments for LOCAL node correlation: A = B @ np.kron(In, C), for multiple types of C.
 
@@ -115,32 +119,50 @@ def run_experiment(
         nb_repetition (int): Number of passes through the dataset
         participation_interval (int): Interval between to participations (number of batches)
         seed (int): Seed for randomness
+        verbose (bool, default False): Print a lot if True.
     """
     np.random.seed(seed)
 
     # Setup
     G = utils.get_graph(graph_name, nb_nodes, seed=seed)
-    if nb_nodes != G.number_of_nodes():
-        assert (
-            graph_name == "florentine"
-        ), "The number of node was changed on a non-florentine graph!"
-        nb_nodes = G.number_of_nodes()
+    assert (
+        nb_nodes == G.number_of_nodes()
+    ), f"Incorrect number of nodes: expected {nb_nodes}, but a graph of {nb_nodes} was returned"
     communication_matrix = utils.get_communication_matrix(G)
 
     nb_steps = nb_repetition * participation_interval
 
     # Build workloads
+    if verbose:
+        print("Building DL workload")
     gram_message_workload = workloads_generator.build_local_DL_gram_workload(
-        matrix=communication_matrix, nb_steps=nb_steps, initial_power=0
+        matrix=communication_matrix,
+        nb_steps=nb_steps,
+        initial_power=0,
+        verbose=verbose,
+        graph_name=graph_name,
+        seed=seed,
     )
+    if verbose:
+        print("Built DL workload")
+        print("Building DL optimization workload")
     gram_optimization_workload = workloads_generator.build_local_DL_gram_workload(
-        matrix=communication_matrix, nb_steps=nb_steps, initial_power=1
+        matrix=communication_matrix,
+        nb_steps=nb_steps,
+        initial_power=1,
+        verbose=verbose,
+        graph_name=graph_name,
+        seed=seed,
     )
+    if verbose:
+        print("Built DL optimization workload")
 
     df = pd.DataFrame({})
 
     for factorization_name in POSSIBLE_FACTORIZATION:
         # TODO: Optimize this, and pass the gram matrix directly to save computation (some factorizations will rebuilt those)
+        if verbose:
+            print(f"Computing {factorization_name}")
         start_time = time.time()
         C = workload_wrapper(
             factorization_name,
@@ -150,6 +172,7 @@ def run_experiment(
             nb_epochs=nb_repetition,
             graph_name=graph_name,
             seed=seed,
+            verbose=verbose,
         )
         elapsed_time = time.time() - start_time
         # plotters.plot_factorization(np.linalg.pinv(C), factorization_name + "+ $C^+$")
@@ -211,6 +234,12 @@ def main():
         default=16,
         help="Interval between participations (number of batches)",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Verbose level",
+    )
     parser.add_argument("--seed", type=int, default=421, help="Seed for randomness")
 
     args = parser.parse_args()
@@ -221,6 +250,7 @@ def main():
         nb_repetition=args.nb_repetition,
         participation_interval=args.participation_interval,
         seed=args.seed,
+        verbose=args.verbose,
     )
 
 

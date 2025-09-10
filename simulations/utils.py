@@ -4,6 +4,7 @@ from typing import Literal
 
 import networkx as nx
 import numpy as np
+from fedivertex import GraphLoader
 
 # Dictionary to rename methods for display
 METHOD_DISPLAY_NAMES = {
@@ -38,6 +39,7 @@ GraphName = Literal[
     "florentine",
     "ego",
     "chain",
+    "peertube",
 ]
 
 
@@ -53,7 +55,7 @@ def expander_graph(n, d, seed):
 
 def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
     G: nx.Graph
-    assert n >= 0, f"Should not make star graph with {n} nodes"
+    assert n >= 0, f"Should not make graph with {n} nodes"
     match name:
         case "expander":
             if n == 1:
@@ -113,10 +115,16 @@ def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
             Gcc = sorted(nx.connected_components(my_graph), key=len, reverse=True)
             G = my_graph.subgraph(Gcc[0]).copy()
             G = nx.convert_node_labels_to_integers(G, label_attribute="fb_id")
+        case "peertube":
+            loader = GraphLoader()
+            G = loader.get_graph(
+                software="peertube", graph_type="follow", index=1, disable_tqdm=True
+            )
         case "chain":
             G = nx.path_graph(n)
         case _:
             raise ValueError(f"Invalid graph name {name}")
+    G = nx.convert_node_labels_to_integers(G)
     G.add_edges_from(
         [(i, i) for i in range(G.number_of_nodes())]
     )  # Always keep this to make a useful graph
@@ -133,6 +141,7 @@ def graph_require_seed(graph_name: GraphName) -> bool:
         "florentine",
         "ego",
         "chain",
+        "peertube",
     ]:
         return False
     elif graph_name in ["erdos", "expander"]:
@@ -205,3 +214,14 @@ def profile_memory_usage(func):
         return result
 
     return wrapper
+
+
+def main():
+    graph_name: GraphName = "peertube"
+    G = get_graph(graph_name, 0, 0)
+    print(G.number_of_nodes())
+
+
+if __name__ == "__main__":
+    # Only used for debugging purposes, trying out graph loading and stuff.
+    main()
