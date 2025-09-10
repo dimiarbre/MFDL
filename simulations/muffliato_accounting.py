@@ -386,13 +386,13 @@ def plot_privacy_loss_multiple_graphs(
         Line2D([0], [0], color="white", label="Graph:"),  # Section header
     ] + graph_lines
 
-    plt.xlabel("Shortest Path Length from Attacker", fontsize=24)
-    plt.ylabel("Privacy loss", fontsize=24)
+    plt.xlabel("Shortest Path Length from Attacker", fontsize=18)
+    plt.ylabel("Privacy loss", fontsize=18)
     plt.yscale("log")
     plt.grid()
-    plt.title(f"Privacy loss accounting", fontsize=20)
-    plt.tick_params(axis="both", which="major", labelsize=16)
-    plt.legend(handles=legend_elements, fontsize=18, handlelength=3)
+    # plt.title(f"Privacy loss accounting", fontsize=20)
+    plt.tick_params(axis="both", which="major", labelsize=14)
+    plt.legend(handles=legend_elements, fontsize=14, handlelength=3)
     plt.tight_layout()
 
     # Save plot data to CSV
