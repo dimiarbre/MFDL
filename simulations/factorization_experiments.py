@@ -8,7 +8,14 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import scienceplots
 import seaborn as sns
-from utils import GraphName, get_graph, graph_require_seed, profile_memory_usage
+from utils import (
+    METHOD_COLORS,
+    METHOD_DISPLAY_NAMES,
+    GraphName,
+    get_graph,
+    graph_require_seed,
+    profile_memory_usage,
+)
 
 GRAPH_NAMES: list[GraphName] = [
     "expander",
@@ -18,7 +25,7 @@ GRAPH_NAMES: list[GraphName] = [
     "erdos",
     "star",
     "florentine",
-    # "ego",
+    "ego",
 ]
 # GRAPH_NAMES = ["expander", "complete"]
 
@@ -31,6 +38,7 @@ NB_REPETITIONS = [4]
 PARTICIPATION_INTERVALS = [16]
 
 SEEDS = [421 + i for i in range(10)]
+# SEEDS = [421 + i for i in range(20)]
 
 
 def generate_all_configurations(
@@ -97,12 +105,13 @@ def compute_all_experiments(recompute: bool) -> pd.DataFrame:
 
         G = get_graph(graph_name, nb_nodes, seed=seed)
         if nb_nodes != G.number_of_nodes():
-            assert (
-                graph_name == "florentine"
-            ), "The number of node was changed on a non-florentine graph!"
+            assert graph_name in [
+                "florentine",
+                "ego",
+            ], f"The number of node was changed on a non-florentine/ego graph: {graph_name}"
             # Florentine graph is a special case, with always 30 nodes
             nb_nodes = G.number_of_nodes()
-            del G
+        del G
 
         # Skip already_existing data.
         if (
@@ -171,12 +180,31 @@ def plot_one_figure(
     summary["sem"] = summary["std"] / summary["count"] ** 0.5
 
     # Plot with error bars (confidence intervals)
-    for _, config in summary.groupby(
+    # Order factorization_name according to METHOD_COLORS.keys()
+    factorization_order = list(METHOD_COLORS.keys())
+    # Get unique combinations of factorization_name, nb_repetition, participation_interval
+    configs = summary.groupby(
         ["factorization_name", "nb_repetition", "participation_interval"]
-    ):
+    )
+    # Sort the configs by factorization_name order, then nb_repetition, then participation_interval
+    sorted_keys = sorted(
+        configs.groups.keys(),
+        key=lambda x: (
+            (
+                factorization_order.index(x[0])
+                if x[0] in factorization_order
+                else len(factorization_order)
+            ),
+            x[1],
+            x[2],
+        ),
+    )
+    for key in sorted_keys:
+        config = configs.get_group(key)
         factorization_name = config["factorization_name"].iloc[0]
-        label = f"{factorization_name}:repetition={config['nb_repetition'].iloc[0]}, interval={config['participation_interval'].iloc[0]}"
+        label = f"{factorization_name} - ({config['participation_interval'].iloc[0]},{config['nb_repetition'].iloc[0]})-participation"
         # Assign marker if not already assigned
+        color = METHOD_COLORS[factorization_name]
         if factorization_name not in label_marker_map:
             marker = markers[len(label_marker_map) % len(markers)]
             label_marker_map[factorization_name] = marker
@@ -189,12 +217,14 @@ def plot_one_figure(
             label=label,
             marker=marker,
             capsize=4,
+            color=color,
         )
 
-    plt.title(title)
-    plt.xlabel("Number of Nodes")
-    plt.ylabel(y_axis_name)
-    plt.legend()
+    plt.title(title, fontsize=20)
+    plt.xlabel("Number of Nodes", fontsize=18)
+    plt.ylabel(y_axis_name, fontsize=18)
+    plt.tick_params(axis="both", which="major", labelsize=16)
+    plt.legend(fontsize=16)
     plt.tight_layout()
     if savepath is not None:
         plt.savefig(savepath)
@@ -226,9 +256,21 @@ def generate_plots(df, hide_figures: bool = False):
     if only_optimal:
         df = df[
             df["factorization_name"].isin(
-                ["OPTIMAL_LOCAL", "OPTIMAL_DL_MSG", "OPTIMAL_DL_POSTAVG", "LDP"]
+                [
+                    "OPTIMAL_LOCAL",
+                    "OPTIMAL_DL_MSG",
+                    "OPTIMAL_DL_POSTAVG",
+                    "LDP",
+                    # "BSR_LOCAL",
+                ]
             )
         ]
+
+    # Rename on plots:
+    for method_source, method_display_name in METHOD_DISPLAY_NAMES.items():
+        df["factorization_name"] = df["factorization_name"].replace(
+            method_source, method_display_name
+        )
 
     # Set up plotting style
     sns.set_theme(style="whitegrid")
@@ -288,6 +330,8 @@ def main():
             shutil.rmtree(cache_path)
 
     df = compute_all_experiments(args.recompute)
+
+    # TODO: Save this
 
     generate_plots(df, args.hidefigs)
 

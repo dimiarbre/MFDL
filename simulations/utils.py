@@ -5,16 +5,27 @@ from typing import Literal
 import networkx as nx
 import numpy as np
 
+# Dictionary to rename methods for display
+METHOD_DISPLAY_NAMES = {
+    "Unnoised baseline": "Unnoised baseline",
+    "LDP": "DP-SGD",
+    "ANTIPGD": "ANTIPGD",
+    "BSR_LOCAL": "BSR",
+    "OPTIMAL_LOCAL": "MF (Choquette-Choo, 2023)",
+    "OPTIMAL_DL_MSG": "Privacy Workload Optimal",
+    "OPTIMAL_DL_POSTAVG": "MAFALDA-SGD (Ours)",
+}
 
-def expander_graph(n, d, seed):
-    if d < n:
-        G = nx.random_regular_graph(d, n, seed=seed)
-    else:
-        raise ValueError(
-            "Degree d must be less than number of nodes n for a regular graph."
-        )
-    return G
-
+# Dictionary to assign colors to each method
+METHOD_COLORS = {
+    "Unnoised baseline": "#1f77b4",
+    "DP-SGD": "#9467bd",
+    "ANTIPGD": "#ff7f0e",
+    "BSR": "#8c564b",
+    "MF (Choquette-Choo, 2023)": "#2ca02c",
+    "Privacy Workload Optimal": "#17becf",
+    "MAFALDA-SGD (Ours)": "#d62728",
+}
 
 GraphName = Literal[
     "expander",
@@ -28,6 +39,16 @@ GraphName = Literal[
     "ego",
     "chain",
 ]
+
+
+def expander_graph(n, d, seed):
+    if d < n:
+        G = nx.random_regular_graph(d, n, seed=seed)
+    else:
+        raise ValueError(
+            "Degree d must be less than number of nodes n for a regular graph."
+        )
+    return G
 
 
 def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
