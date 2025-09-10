@@ -154,6 +154,13 @@ def plot_housing_results_with_ci(
             steps, means_np - stds_np, means_np + stds_np, alpha=0.2, color=color
         )
 
+    # Limit y-axis upper bound to 8 if needed
+    ymax = ax.get_ylim()[1]
+    if ymax > 8:
+        ax.set_ylim(top=8)
+    ymin = ax.get_ylim()[0]
+    if ymin < 0:
+        ax.set_ylim(bottom=0)
     ax.set_xlabel("Step", fontsize=18)
     ax.set_ylabel(loss_attr.replace("_", " ").title(), fontsize=18)
     ax.set_title(
@@ -164,6 +171,7 @@ def plot_housing_results_with_ci(
         ax.set_yscale("log")
     plt.tick_params(axis="both", which="major", labelsize=16)
     ax.legend(fontsize=16)
+    plt.grid()
     plt.tight_layout()
     filename = f"housing_{loss_attr}_ci_plot"
     csv_path = f"results/housing_data/{filename}.csv"
@@ -180,10 +188,10 @@ def main():
     filters: Dict[str, List] = {
         "graph_name": ["ego"],
         "num_passes": [20],
-        "epsilon": [0.2],  # Remember to put floats here (1.0,...)
+        "epsilon": [10.0],  # Remember to put floats here (1.0,...)
     }
     df = load_housing_data(param_filters=filters)
-    assert not df.empty, "Empty dataframe"
+    assert not df.empty, "Empty dataframe, check you used floats in epsilon"
 
     # Ensures we are on an unique setting in all the experiments
     for _, param in PARAM_MAP.items():
@@ -193,8 +201,8 @@ def main():
             ), f"Got multiple values for parameter {param}"
 
     # df = df[df["method"] != "LDP"]
-    df = df[df["method"] != "ANTIPGD"]
-    df = df[df["method"] != "BSR_LOCAL"]
+    # df = df[df["method"] != "ANTIPGD"]
+    # df = df[df["method"] != "BSR_LOCAL"]
     df = df[df["method"] != "OPTIMAL_DL_MSG"]
     # df = df[df["method"] != "OPTIMAL_LOCAL"]
 
