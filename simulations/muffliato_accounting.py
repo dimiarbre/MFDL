@@ -1,4 +1,5 @@
 import os
+import time
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -7,6 +8,7 @@ import pandas as pd
 import scienceplots
 import utils
 import workloads_generator
+from matplotlib.lines import Line2D
 from utils import GraphName
 
 
@@ -25,16 +27,21 @@ def epsilon_upper_bound(
     coeff = ((delta_phi**2) * alpha) / (2.0 * (sigma**2))
     total = 0.0
 
-    # TODO: this can be optimized via a change of variable (s = j-t)
-    # This would become a simple sum, but would be harder to read.
-    # Also, this function is generally quick compared to others, so it's not a priority.
-    for t in range(1, T + 1):
-        for j in range(t, T + 1):
-            product = np.linalg.matrix_power(W, j - t)
-            norms = np.linalg.norm(product, axis=0) ** 2
-            for w in G.neighbors(v):
-                total += product[u, w] / norms[w]
+    # Formula in the paper:
+    # for t in range(1, T + 1):
+    #     for j in range(t, T + 1):
+    #         product = np.linalg.matrix_power(W, j - t)
+    #         norms = np.linalg.norm(product, axis=0) ** 2
+    #         for w in G.neighbors(v):
+    #             total += product[u, w] / norms[w]
 
+    # Optimized via a change of variable (s = j-t) to reduce the number of calls to matrix_power
+    # And to remove a loop.
+    for s in range(T):
+        product = np.linalg.matrix_power(W, s)
+        norms = np.linalg.norm(product, axis=0) ** 2
+        for w in G.neighbors(v):
+            total += product[u, w] / norms[w] * (T - s)
     return coeff * total
 
 
@@ -130,7 +137,8 @@ def privacy_loss_by_distance(
     # Group sensitivities by distance
     distance_dict_MF = {}
     distance_dict_Muffliato = {}
-    for node, dist in lengths.items():
+    for i, (node, dist) in enumerate(lengths.items()):
+        print(f"{i}/{len(lengths)}", end="\r")
         if dist not in distance_dict_MF:
             distance_dict_MF[dist] = []
             distance_dict_Muffliato[dist] = []
@@ -138,17 +146,16 @@ def privacy_loss_by_distance(
         # u-GDP implies (alpha, alpha * u**2 /2)-RDP
         # and Muffilato is 1/sens(C)-GDP since we do not rescale by the sensitivity.
         distance_dict_MF[dist].append(alpha * sensitivities[node] ** 2 / 2)
-        distance_dict_Muffliato[dist].append(
-            epsilon_upper_bound(
-                G=graph,
-                u=node,
-                v=attacker,
-                T=nb_steps,
-                delta_phi=1,
-                alpha=alpha,
-                sigma=1,
-            )
+        muffliato_eps = epsilon_upper_bound(
+            G=graph,
+            u=node,
+            v=attacker,
+            T=nb_steps,
+            delta_phi=1,
+            alpha=alpha,
+            sigma=1,
         )
+        distance_dict_Muffliato[dist].append(muffliato_eps)
 
     return distance_dict_MF, distance_dict_Muffliato
 
@@ -225,7 +232,7 @@ def plot_privacy_loss_for_graph(
             ecolor=color,
             elinewidth=2,
             capsize=5,
-            label=f"{name} (Min/Max Error)",
+            label=f"{name} (Min/Max)",
         )
 
     # Create a pandas DataFrame with all plotting data
@@ -252,6 +259,153 @@ def plot_privacy_loss_for_graph(
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
     plot_df.to_csv(csv_path)
 
+    plt.show()
+
+
+def plot_privacy_loss_multiple_graphs(
+    graph_configs: list[dict],
+    participation_interval: int,
+    nb_repetitions: int,
+    alpha: float,
+):
+    """
+    Plots privacy loss for multiple graphs on one figure.
+    Each config in graph_configs should be a dict with keys:
+        'graph_name', 'nb_nodes', 'seed', 'attacker'
+    MF: solid line, Muffliato-SGD: dotted line, same color per graph.
+    Legend: "...": Muffliato-SGD, "—" MF-DL, plus color for each graph.
+    """
+    plt.style.use("science")
+    plt.figure(figsize=(10, 6))
+    plot_data = []
+    graph_lines = []
+
+    for idx, config in enumerate(graph_configs):
+        graph_name = config["graph_name"]
+        nb_nodes = config["nb_nodes"]
+        seed = config["seed"]
+        attacker = config["attacker"]
+
+        graph = utils.get_graph(graph_name, nb_nodes, seed)
+        nb_nodes = graph.number_of_nodes()
+        ploss_dict_MF, ploss_dict_Muffliato = privacy_loss_by_distance(
+            graph=graph,
+            attacker=attacker,
+            participation_interval=participation_interval,
+            nb_repetitions=nb_repetitions,
+            alpha=alpha,
+        )
+
+        distances = []
+        avg_ploss_MF = []
+        avg_ploss_Muffliato = []
+
+        for distance in sorted(ploss_dict_MF.keys()):
+            if distance == 0.0:
+                continue
+            distances.append(distance)
+            avg_ploss_MF.append(np.mean(ploss_dict_MF[distance]))
+            avg_ploss_Muffliato.append(np.mean(ploss_dict_Muffliato[distance]))
+            plot_data.append(
+                {
+                    "graph": graph_name,
+                    "distance": distance,
+                    "avg_privacy_loss_MF": np.mean(ploss_dict_MF[distance]),
+                    "max_privacy_loss_MF": np.max(ploss_dict_MF[distance]),
+                    "min_privacy_loss_MF": np.min(ploss_dict_MF[distance]),
+                    "avg_privacy_loss_Muffliato": np.mean(
+                        ploss_dict_Muffliato[distance]
+                    ),
+                    "max_privacy_loss_Muffliato": np.max(
+                        ploss_dict_Muffliato[distance]
+                    ),
+                    "min_privacy_loss_Muffliato": np.min(
+                        ploss_dict_Muffliato[distance]
+                    ),
+                }
+            )
+
+        # Plot MF (solid) and Muffliato-SGD (dotted) with same color
+        (mf_line,) = plt.plot(
+            distances,
+            avg_ploss_MF,
+            linewidth=2,
+        )
+        color = mf_line.get_color()
+        plt.plot(
+            distances,
+            avg_ploss_Muffliato,
+            linestyle="--",
+            color=color,
+            linewidth=2,
+        )
+
+        # Add error bars for MF (min/max)
+        min_ploss_MF = [np.min(ploss_dict_MF[d]) for d in distances]
+        max_ploss_MF = [np.max(ploss_dict_MF[d]) for d in distances]
+        plt.errorbar(
+            distances,
+            avg_ploss_MF,
+            yerr=[
+                np.array(avg_ploss_MF) - np.array(min_ploss_MF),
+                np.array(max_ploss_MF) - np.array(avg_ploss_MF),
+            ],
+            fmt="o",
+            color=color,
+            ecolor=color,
+            elinewidth=2,
+            capsize=5,
+            label=f"{graph_name} MF (Min/Max)",
+        )
+
+        # Add error bars for Muffliato-SGD (min/max)
+        min_ploss_Muffliato = [np.min(ploss_dict_Muffliato[d]) for d in distances]
+        max_ploss_Muffliato = [np.max(ploss_dict_Muffliato[d]) for d in distances]
+        plt.errorbar(
+            distances,
+            avg_ploss_Muffliato,
+            yerr=[
+                np.array(avg_ploss_Muffliato) - np.array(min_ploss_Muffliato),
+                np.array(max_ploss_Muffliato) - np.array(avg_ploss_Muffliato),
+            ],
+            fmt="s",
+            color=color,
+            ecolor=color,
+            elinewidth=2,
+            capsize=5,
+            label=f"{graph_name} Muffliato-SGD (Min/Max)",
+        )
+
+        graph_lines.append(Line2D([0], [0], color=color, lw=3, label=graph_name))
+
+    # Unified legend with sections
+    legend_elements = [
+        Line2D([0], [0], color="white", label="Accounting:"),  # Section header
+        Line2D([0], [0], color="black", linestyle="--", lw=2, label="Muffliato-SGD"),
+        Line2D([0], [0], color="black", linestyle="-", lw=2, label="MF-DL"),
+        Line2D([0], [0], color="white", label="Graph:"),  # Section header
+    ] + graph_lines
+
+    plt.xlabel("Shortest Path Length from Attacker", fontsize=24)
+    plt.ylabel("Privacy loss", fontsize=24)
+    plt.yscale("log")
+    plt.grid()
+    plt.title(f"Privacy loss accounting", fontsize=20)
+    plt.tick_params(axis="both", which="major", labelsize=16)
+    plt.legend(handles=legend_elements, fontsize=18, handlelength=3)
+    plt.tight_layout()
+
+    # Save plot data to CSV
+    plot_df = pd.DataFrame(plot_data)
+    file_name = f"privacy_loss_all_graphs_T{nb_repetitions}_alpha{alpha}"
+    csv_path = f"results/accounting/{file_name}.csv"
+    os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+    plot_df.to_csv(csv_path)
+
+    # Save figure to PDF
+    pdf_path = f"figures/accounting/{file_name}.pdf"
+    os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+    plt.savefig(pdf_path)
     plt.show()
 
 
@@ -303,11 +457,25 @@ def main():
     # nb_nodes = graph.number_of_nodes()
     # matrix = utils.get_communication_matrix(graph)
 
-    plot_privacy_loss_for_graph(
-        graph_name=graph_name,
-        nb_nodes=nb_nodes,
-        seed=seed,
-        attacker=attacker,
+    # plot_privacy_loss_for_graph(
+    #     graph_name=graph_name,
+    #     nb_nodes=nb_nodes,
+    #     seed=seed,
+    #     attacker=attacker,
+    #     participation_interval=participation_interval,
+    #     nb_repetitions=nb_repetitions,
+    #     alpha=alpha,
+    # )
+
+    graph_configs = [
+        {"graph_name": "erdos", "nb_nodes": 100, "seed": 42, "attacker": 0},
+        {"graph_name": "ego", "nb_nodes": 148, "seed": 421, "attacker": 0},
+        {"graph_name": "peertube", "nb_nodes": 890, "seed": 421, "attacker": 887},
+        {"graph_name": "florentine", "nb_nodes": 15, "seed": 421, "attacker": 0},
+    ]
+
+    plot_privacy_loss_multiple_graphs(
+        graph_configs=graph_configs,
         participation_interval=participation_interval,
         nb_repetitions=nb_repetitions,
         alpha=alpha,
