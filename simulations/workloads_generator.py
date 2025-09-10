@@ -13,6 +13,7 @@ def get_pi(nb_nodes, nb_iterations):
     Generates a permutation matrix that goes from a spatial repartition (n*T) to a temporal repartion (T*n).
     It returns a matrix Pi. If X is a vector composed of nb_nodes blocks of nb_steps values, then Pi @ X is a permutation of this vector composed of nb_steps blocks of nb_nodes values
     """
+    # TODO: This needs to be redone for optimization purposes. As it stands, this instantiates a big matrix, and we run W @ pi down the line. Since it is a permutation, we could just have a reindexing instead. For instance, with 3 nodes and 3 iterations, we would have something like  pi = [0,3,6,1,4,7,2,5,8], and just compute W[pi]. This would be much more efficient in memory.
     if nb_nodes == 0 or nb_iterations == 0:
         raise ValueError("0-dimensional permutation is not allowed")
     permutation = np.zeros((nb_nodes * nb_iterations, nb_nodes * nb_iterations))
