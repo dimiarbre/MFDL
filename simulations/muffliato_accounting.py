@@ -16,7 +16,7 @@ def epsilon_upper_bound(
     G: nx.Graph, u: int, v: int, T: int, delta_phi: float, alpha: float, sigma: float
 ) -> float:
     """
-    Compute the upper bound eps^T_{u->v}(alpha) following theorem 11 in https://arxiv.org/pdf/2206.05091
+    Compute the upper bound eps^T_{u->v}(alpha) following theorem 11 in https://arxiv.org/pdf/2206.05091. This is the original paper's formula.
 
     """
     W = utils.get_communication_matrix(G)
@@ -51,6 +51,17 @@ def compute_muffliato_privacy_loss(
     attacker: int,
     participation_interval: int,
 ) -> list[float]:
+    """Compute the PNDP privacy loss of the Muffliato algorithm (k=1) using our paper's accounting. This assumes a cyclic (participation_interval,nb_steps)-participation. Note participation_interval should be 1 to compare to the original paper, as they consider user-level privacy.
+
+    Args:
+        communication_matrix (np.ndarray): Communication graph as a np matrix
+        nb_steps (int): Number of iterations
+        attacker (int): Id of the attacker node, will compute eps(u->attacker), for all node u.
+        participation_interval (int): Interval between two succinct participation (for batch-level privacy).
+
+    Returns:
+        list[float]: List containing eps(u->attacker), for all node u, using our accounting.
+    """
     nb_nodes = len(communication_matrix)
     # Messages observed by an attacker
     LDP_workload = workloads_generator.build_DL_workload(
@@ -275,16 +286,22 @@ def plot_privacy_loss_multiple_graphs(
     MF: solid line, Muffliato-SGD: dotted line, same color per graph.
     Legend: "...": Muffliato-SGD, "—" MF-DL, plus color for each graph.
     """
-    plt.style.use("science")
+    plt.style.use(["science", "tableau-colorblind10"])
     plt.figure(figsize=(10, 6))
     plot_data = []
     graph_lines = []
 
+    # Use colorblind-friendly colors from tab10
+    cmap = plt.get_cmap("tab10")
+    colors = [cmap(i) for i in range(len(graph_configs))]
+    markers = ["o", "s", "D", "^", "v", "P", "*", "X"]  # Add more if needed
     for idx, config in enumerate(graph_configs):
         graph_name = config["graph_name"]
         nb_nodes = config["nb_nodes"]
         seed = config["seed"]
         attacker = config["attacker"]
+        marker = markers[idx]
+        color = colors[idx]
 
         graph = utils.get_graph(graph_name, nb_nodes, seed)
         nb_nodes = graph.number_of_nodes()
@@ -326,12 +343,12 @@ def plot_privacy_loss_multiple_graphs(
             )
 
         # Plot MF (solid) and Muffliato-SGD (dotted) with same color
-        (mf_line,) = plt.plot(
+        plt.plot(
             distances,
             avg_ploss_MF,
             linewidth=2,
+            color=color,
         )
-        color = mf_line.get_color()
         plt.plot(
             distances,
             avg_ploss_Muffliato,
@@ -350,7 +367,8 @@ def plot_privacy_loss_multiple_graphs(
                 np.array(avg_ploss_MF) - np.array(min_ploss_MF),
                 np.array(max_ploss_MF) - np.array(avg_ploss_MF),
             ],
-            fmt="o",
+            fmt=marker,
+            markersize=8,
             color=color,
             ecolor=color,
             elinewidth=2,
@@ -368,7 +386,8 @@ def plot_privacy_loss_multiple_graphs(
                 np.array(avg_ploss_Muffliato) - np.array(min_ploss_Muffliato),
                 np.array(max_ploss_Muffliato) - np.array(avg_ploss_Muffliato),
             ],
-            fmt="s",
+            fmt=marker,
+            markersize=8,
             color=color,
             ecolor=color,
             elinewidth=2,
@@ -376,24 +395,68 @@ def plot_privacy_loss_multiple_graphs(
             label=f"{graph_name} Muffliato-SGD (Min/Max)",
         )
 
-        graph_lines.append(Line2D([0], [0], color=color, lw=3, label=graph_name))
+        graph_lines.append(
+            Line2D(
+                [0],
+                [0],
+                color=color,
+                lw=3,
+                label=graph_name,
+                marker=marker,
+                markersize=10,
+            )
+        )
 
-    # Unified legend with sections
-    legend_elements = [
-        Line2D([0], [0], color="white", label="Accounting:"),  # Section header
+    # Separate legends: one for accounting methods (bottom left), one for graphs (below it)
+    # Accounting method legend (placed above graph legend)
+    accounting_elements = [
         Line2D([0], [0], color="black", linestyle="--", lw=2, label="Muffliato-SGD"),
-        Line2D([0], [0], color="black", linestyle="-", lw=2, label="MF-DL"),
-        Line2D([0], [0], color="white", label="Graph:"),  # Section header
-    ] + graph_lines
+        Line2D([0], [0], color="black", linestyle="-", lw=2, label="MF-DL (ours)"),
+    ]
 
     plt.xlabel("Shortest Path Length from Attacker", fontsize=18)
-    plt.ylabel("Privacy loss", fontsize=18)
+    plt.ylabel("Privacy loss (Rényi Divergence)", fontsize=18)
     plt.yscale("log")
     plt.grid()
-    # plt.title(f"Privacy loss accounting", fontsize=20)
     plt.tick_params(axis="both", which="major", labelsize=14)
-    plt.legend(handles=legend_elements, fontsize=14, handlelength=3)
+
+    graph_legend = plt.legend(
+        handles=graph_lines,
+        title="Graph",
+        loc="lower left",
+        fontsize=13,
+        title_fontsize=15,
+        handlelength=3,
+        frameon=True,
+        facecolor="white",
+        edgecolor="black",
+    )
+    plt.gca().add_artist(graph_legend)
+
     plt.tight_layout()
+    # Get the bounding box of the graph legend (in axes coordinates)
+    plt.draw()  # Needed to update legend positions
+    bbox = graph_legend.get_window_extent()
+    inv = plt.gca().transAxes.inverted()
+    bbox_axes = inv.transform(bbox)
+    x0, y0 = bbox_axes[0]  # lower left corner
+    x1, y1 = bbox_axes[1]  # upper right corner
+
+    # Place the accounting legend above the graph legend
+    accounting_legend = plt.legend(
+        handles=accounting_elements,
+        title="Accounting (Min/Max)",
+        fontsize=13,
+        title_fontsize=15,
+        handlelength=3,
+        frameon=True,
+        facecolor="white",
+        edgecolor="black",
+        loc="lower left",
+        bbox_to_anchor=(x0, y1 + 0.002),  # Offset slightly above the graph legend
+    )
+    plt.gca().add_artist(accounting_legend)
+    # plt.tight_layout()
 
     # Save plot data to CSV
     plot_df = pd.DataFrame(plot_data)
@@ -445,13 +508,18 @@ def main():
     graph_name = "erdos"
     # graph_name = "ego"
     nb_nodes = 100
-    seed = 42
+    seed = 421
     attacker = 0
     participation_interval = 1
     nb_repetitions = 10
     alpha = 2
 
     nb_steps = nb_repetitions * participation_interval
+
+    import random
+
+    random.seed(seed)
+    np.random.seed(seed)
 
     # graph = utils.get_graph(graph_name, 20, 421)
     # nb_nodes = graph.number_of_nodes()
@@ -470,7 +538,12 @@ def main():
     graph_configs = [
         {"graph_name": "erdos", "nb_nodes": 100, "seed": 42, "attacker": 0},
         {"graph_name": "ego", "nb_nodes": 148, "seed": 421, "attacker": 0},
-        {"graph_name": "peertube", "nb_nodes": 890, "seed": 421, "attacker": 887},
+        {
+            "graph_name": "peertube (connex component)",
+            "nb_nodes": 271,
+            "seed": 421,
+            "attacker": 0,
+        },
         {"graph_name": "florentine", "nb_nodes": 15, "seed": 421, "attacker": 0},
     ]
 
