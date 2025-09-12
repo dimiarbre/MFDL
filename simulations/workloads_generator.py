@@ -301,7 +301,7 @@ def build_local_DL_gram_workload(
 
     pi, pi_inv = get_pi_reindexing(nb_nodes=nb_nodes, nb_iterations=nb_steps)
     A = dl_workload[
-        :, pi
+        :, pi_inv
     ]  # Equivalent to the previous A = dl_workload @ pi, see the tests if you want to make sure.
 
     gram_workload = np.zeros((nb_steps, nb_steps))
@@ -363,7 +363,13 @@ def build_local_DL_workload(
             return cache_result
 
     gram_workload = build_local_DL_gram_workload(
-        matrix=matrix, nb_steps=nb_steps, initial_power=initial_power
+        matrix=matrix,
+        nb_steps=nb_steps,
+        initial_power=initial_power,
+        caching=caching,
+        graph_name=graph_name,
+        seed=seed,
+        verbose=verbose,
     )
 
     gram_workload_permuted = optimal_factorization._permute_lower_triangle(
