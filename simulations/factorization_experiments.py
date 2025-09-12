@@ -11,6 +11,7 @@ import seaborn as sns
 from utils import (
     METHOD_COLORS,
     METHOD_DISPLAY_NAMES,
+    METHOD_MARKERS,
     GraphName,
     get_graph,
     graph_require_seed,
@@ -18,15 +19,16 @@ from utils import (
 )
 
 GRAPH_NAMES: list[GraphName] = [
-    "expander",
-    "cycle",
-    "empty",
+    # "expander",
+    # "cycle",
+    # "empty",
     "complete",
     "erdos",
-    "star",
-    "florentine",
-    "ego",
-    "peertube",
+    # "star",
+    # "florentine",
+    # "ego",
+    # "peertube (connex component)",
+    "regular",
 ]
 # GRAPH_NAMES = ["expander", "complete"]
 
@@ -39,8 +41,8 @@ NB_REPETITIONS = [4]
 
 PARTICIPATION_INTERVALS = [16]
 
-SEEDS = [421 + i for i in range(10)]
-# SEEDS = [421 + i for i in range(20)]
+# SEEDS = [421 + i for i in range(10)]
+SEEDS = [421 + i for i in range(20)]
 
 
 def generate_all_configurations(
@@ -103,15 +105,20 @@ def compute_all_experiments(recompute: bool, verbose: bool = False) -> pd.DataFr
         seed,
         participation_interval,
     ) in enumerate(params):
+        graph_name: GraphName
         prefix = f"[{i+1:0{len(str(nb_expe))}d}/{nb_expe}] - "
 
         G = get_graph(graph_name, nb_nodes, seed=seed)
         if nb_nodes != G.number_of_nodes():
-            assert graph_name in [
+            can_change: list[GraphName] = [
                 "florentine",
                 "ego",
                 "peertube",
-            ], f"The number of node was changed on a non-florentine/ego/peertube graph: {graph_name}"
+                "peertube (connex component)",
+            ]
+            assert (
+                graph_name in can_change
+            ), f"The number of node was changed on a non-florentine/ego/peertube graph: {graph_name}"
             # Florentine graph is a special case, with always 30 nodes
             nb_nodes = G.number_of_nodes()
         del G
@@ -149,7 +156,6 @@ def compute_all_experiments(recompute: bool, verbose: bool = False) -> pd.DataFr
 
 def plot_one_figure(
     sub_df,
-    markers,
     label_marker_map,
     title,
     savepath,
@@ -206,14 +212,10 @@ def plot_one_figure(
     for key in sorted_keys:
         config = configs.get_group(key)
         factorization_name = config["factorization_name"].iloc[0]
-        label = f"{factorization_name} - ({config['participation_interval'].iloc[0]},{config['nb_repetition'].iloc[0]})-participation"
+        label = f"{factorization_name}"
         # Assign marker if not already assigned
         color = METHOD_COLORS[factorization_name]
-        if factorization_name not in label_marker_map:
-            marker = markers[len(label_marker_map) % len(markers)]
-            label_marker_map[factorization_name] = marker
-        else:
-            marker = label_marker_map[factorization_name]
+        marker = METHOD_MARKERS[factorization_name]
         plt.errorbar(
             config["nb_nodes"],
             config["mean"],
@@ -224,17 +226,22 @@ def plot_one_figure(
             color=color,
         )
 
-    plt.title(title, fontsize=20)
-    plt.xlabel("Number of Nodes", fontsize=18)
-    plt.ylabel(y_axis_name, fontsize=18)
+    # plt.title(title, fontsize=26)
+    plt.xlabel("Number of Nodes", fontsize=24)
+    plt.ylabel(y_axis_name, fontsize=24)
     plt.tick_params(axis="both", which="major", labelsize=16)
-    plt.legend(fontsize=16)
+    plt.legend(
+        fontsize=18,
+        frameon=True,
+        facecolor="white",
+        edgecolor="black",
+    )
     plt.tight_layout()
     if savepath is not None:
         plt.savefig(savepath)
 
 
-def generate_plots(df, hide_figures: bool = False):
+def generate_plots(df, hide_figures: bool = False, only_optimal: bool = False):
     # Ensure necessary columns exist
     required_columns = [
         "graph_name",
@@ -256,7 +263,6 @@ def generate_plots(df, hide_figures: bool = False):
     # Additional filters
     # TODO: remove
     df = df[df["nb_repetition"] == 4]
-    only_optimal = True
     if only_optimal:
         df = df[
             df["factorization_name"].isin(
@@ -270,6 +276,7 @@ def generate_plots(df, hide_figures: bool = False):
             )
         ]
 
+    df = df.copy()
     # Rename on plots:
     for method_source, method_display_name in METHOD_DISPLAY_NAMES.items():
         df["factorization_name"] = df["factorization_name"].replace(
@@ -281,7 +288,7 @@ def generate_plots(df, hide_figures: bool = False):
     plt.style.use("science")
 
     # Define a list of markers to cycle through
-    markers = ["o", "s", "D", "^", "v", ">", "<", "p", "*", "h", "X"]
+
     # Create a mapping from config label to marker to keep it consistent
     label_marker_map = {}
 
@@ -292,23 +299,21 @@ def generate_plots(df, hide_figures: bool = False):
         csvpath = f"figures/factorization_simulation/{"only_optimal_" if only_optimal else ""}optim_loss_vs_nbnodes_{graph_name}.pdf"
         plot_one_figure(
             sub_df=sub_df,
-            markers=markers,
             label_marker_map=label_marker_map,
             title=title,
             savepath=csvpath,
         )
 
-        title = f"Mean Optimization Loss vs Number of Nodes ({graph_name})"
-        csvpath = f"figures/factorization_simulation/{"only_optimal_" if only_optimal else ""}mean_optim_loss_vs_nbnodes_{graph_name}.pdf"
-        plot_one_figure(
-            sub_df=sub_df,
-            markers=markers,
-            label_marker_map=label_marker_map,
-            title=title,
-            savepath=csvpath,
-            y_axis_name="Mean optimization loss",
-            y_axis_data="mean_loss_optimization",
-        )
+        # title = f"Mean Optimization Loss vs Number of Nodes ({graph_name})"
+        # csvpath = f"figures/factorization_simulation/{"only_optimal_" if only_optimal else ""}mean_optim_loss_vs_nbnodes_{graph_name}.pdf"
+        # plot_one_figure(
+        #     sub_df=sub_df,
+        #     label_marker_map=label_marker_map,
+        #     title=title,
+        #     savepath=csvpath,
+        #     y_axis_name="Mean optimization loss",
+        #     y_axis_data="mean_loss_optimization",
+        # )
 
     if not hide_figures:
         plt.show()
@@ -340,9 +345,18 @@ def main():
 
     df = compute_all_experiments(args.recompute, verbose=args.verbose)
 
-    # TODO: Save this
+    # TODO: Save this df
 
-    generate_plots(df, args.hidefigs)
+    # Remove unneeded plot data for the paper.
+    df = df[
+        df["factorization_name"] != "OPTIMAL_DL_MSG"
+    ]  # Wrong optimization objective
+    df = df[
+        df["factorization_name"] != "BSR_LOCAL"
+    ]  # Wrong method, should use BSR_BANDED_LOCAL
+
+    generate_plots(df, args.hidefigs, only_optimal=False)
+    generate_plots(df, args.hidefigs, only_optimal=True)
 
 
 if __name__ == "__main__":
