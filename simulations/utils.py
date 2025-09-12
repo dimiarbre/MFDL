@@ -17,7 +17,8 @@ METHOD_DISPLAY_NAMES = {
     "Unnoised baseline": "Unnoised baseline",
     "LDP": "DP-SGD",
     "ANTIPGD": "ANTIPGD",
-    "BSR_LOCAL": "BSR",
+    "BSR_LOCAL": "SR (Nikita \\& Lampert, 2024)",  # Banded SR, is never used, and thus named wrongly.
+    "BSR_BANDED_LOCAL": "BSR (Nikita \\& Lampert, 2024)",  # Banded SR, is never used, and thus named wrongly.
     "OPTIMAL_LOCAL": "MF (Choquette-Choo, 2023)",
     "OPTIMAL_DL_MSG": "Optimal (Message Loss)",
     "OPTIMAL_DL_POSTAVG": "MAFALDA-SGD (Ours)",
@@ -28,7 +29,8 @@ METHOD_COLORS = {
     "Unnoised baseline": "#1f77b4",
     "DP-SGD": "#9467bd",
     "ANTIPGD": "#ff7f0e",
-    "BSR": "#8c564b",
+    "SR (Nikita \\& Lampert, 2024)": "#e377c2",
+    "BSR (Nikita \\& Lampert, 2024)": "#8c564b",
     "MF (Choquette-Choo, 2023)": "#2ca02c",
     "Optimal (Message Loss)": "#17becf",
     "MAFALDA-SGD (Ours)": "#d62728",
@@ -38,10 +40,11 @@ METHOD_MARKERS = {
     "Unnoised baseline": "o",
     "DP-SGD": "s",
     "ANTIPGD": "*",
-    "BSR": "H",
-    "MF (Choquette-Choo, 2023)": "X",
-    "Optimal (Message Loss)": ">",
-    "MAFALDA-SGD (Ours)": "s",
+    "SR (Nikita \\& Lampert, 2024)": "^",
+    "BSR (Nikita \\& Lampert, 2024)": "H",
+    "MF (Choquette-Choo, 2023)": "<",
+    "Optimal (Message Loss)": "X",
+    "MAFALDA-SGD (Ours)": ">",
 }
 GraphName = Literal[
     "expander",
@@ -55,6 +58,8 @@ GraphName = Literal[
     "ego",
     "chain",
     "peertube",
+    "peertube (connex component)",
+    "regular",
 ]
 
 
@@ -100,6 +105,7 @@ def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
         case "erdos":
             connex = False
             nb_tries = 0
+            G = nx.empty_graph(n)
             while not connex:
                 G = nx.erdos_renyi_graph(n, np.log(n) / n, seed=seed + nb_tries)
                 connex = nx.is_connected(G)
@@ -137,11 +143,25 @@ def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
                 graph_type="follow",
                 index=1,
                 disable_tqdm=True,
-                # only_largest_component=True,
+                only_largest_component=False,
+            )
+            G = nx.Graph(G)  # Convert to undirected graph
+        case "peertube (connex component)":
+            loader = GraphLoader()
+            G = loader.get_graph(
+                software="peertube",
+                graph_type="follow",
+                index=1,
+                disable_tqdm=True,
+                only_largest_component=True,
             )
             G = nx.Graph(G)  # Convert to undirected graph
         case "chain":
             G = nx.path_graph(n)
+        case "regular":
+            # 5 regular graph
+            # TODO: Allow user to chose the degree
+            G = nx.random_regular_graph(5, n, seed)
         case _:
             raise ValueError(f"Invalid graph name {name}")
     G = nx.convert_node_labels_to_integers(G)
@@ -162,9 +182,10 @@ def graph_require_seed(graph_name: GraphName) -> bool:
         "ego",
         "chain",
         "peertube",
+        "peertube (connex component)",
     ]:
         return False
-    elif graph_name in ["erdos", "expander"]:
+    elif graph_name in ["erdos", "expander", "regular"]:
         return True
     else:
         raise NotImplementedError(
@@ -237,7 +258,7 @@ def profile_memory_usage(func):
 
 
 def main():
-    graph_name: GraphName = "peertube"
+    graph_name: GraphName = "peertube (connex component)"
     G = get_graph(graph_name, 0, 0)
     print(G.number_of_nodes())
     max_degree = max(dict(G.degree()).values())
