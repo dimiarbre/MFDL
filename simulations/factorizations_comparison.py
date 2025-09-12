@@ -17,6 +17,7 @@ FactorizationName = Literal[
     "LDP",
     "ANTIPGD",
     "BSR_LOCAL",
+    "BSR_BANDED_LOCAL",
     "OPTIMAL_LOCAL",
     "OPTIMAL_DL_MSG",
     "OPTIMAL_DL_POSTAVG",
@@ -26,6 +27,7 @@ POSSIBLE_FACTORIZATION: list[FactorizationName] = [
     "LDP",
     "ANTIPGD",
     "BSR_LOCAL",
+    "BSR_BANDED_LOCAL",
     "OPTIMAL_LOCAL",
     "OPTIMAL_DL_MSG",
     "OPTIMAL_DL_POSTAVG",
@@ -52,8 +54,12 @@ def workload_wrapper(
                 nb_nodes=1, nb_iterations=nb_iterations
             )
         case "BSR_LOCAL":
-            return workloads_generator.BSR_local_factorization(
+            return workloads_generator.SR_local_factorization(
                 nb_iterations=nb_iterations
+            )
+        case "BSR_BANDED_LOCAL":
+            return workloads_generator.BSR_local_factorization(
+                nb_iterations=nb_iterations, nb_epochs=nb_epochs
             )
         case "OPTIMAL_LOCAL":
             return workloads_generator.MF_OPTIMAL_local(
