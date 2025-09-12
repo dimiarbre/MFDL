@@ -385,7 +385,10 @@ def run_experiment(
     C_NONOISE = np.zeros((num_steps, num_steps))
     C_LDP = workloads_generator.MF_LDP(nb_nodes=1, nb_iterations=num_steps)
     C_ANTIPGD = workloads_generator.MF_ANTIPGD(nb_nodes=1, nb_iterations=num_steps)
-    C_BSR_LOCAL = workloads_generator.BSR_local_factorization(nb_iterations=num_steps)
+    C_SR_LOCAL = workloads_generator.SR_local_factorization(nb_iterations=num_steps)
+    C_BSR_LOCAL = workloads_generator.BSR_local_factorization(
+        nb_iterations=num_steps, nb_epochs=num_repetition
+    )
 
     all_test_losses = {}
     all_train_losses = {}
@@ -394,7 +397,8 @@ def run_experiment(
         ("Unnoised baseline", C_NONOISE),
         ("LDP", C_LDP),
         ("ANTIPGD", C_ANTIPGD),
-        ("BSR_LOCAL", C_BSR_LOCAL),
+        ("BSR_LOCAL", C_SR_LOCAL),
+        ("BSR_BANDED_LOCAL", C_BSR_LOCAL),
     ]
 
     if use_optimals:
@@ -556,6 +560,7 @@ def run_experiment(
 
     # Save to CSV
     if not debug:
+        os.makedirs(os.path.dirname(csv_path), exist_ok=True)
         df.to_csv(csv_path, index=False)
         print(f"Results saved to {csv_path}")
 
