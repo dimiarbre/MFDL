@@ -101,11 +101,10 @@ def load_housing_data(
 def plot_housing_results_with_ci(
     df: pd.DataFrame,
     loss_attr: str = "test_loss",
-    details: str = "",
-    experiment_properties: str = "",
     debug: bool = True,
     log_scale: bool = False,
     min_max: bool = False,
+    filename: str = "",
 ):
     """
     Plots the mean and confidence interval of loss_attr for each method as a function of step.
@@ -154,26 +153,29 @@ def plot_housing_results_with_ci(
             steps, means_np - stds_np, means_np + stds_np, alpha=0.2, color=color
         )
 
-    # Limit y-axis upper bound to 8 if needed
+    ymax_plot = 4  # Manual bound for nicer figures
     ymax = ax.get_ylim()[1]
-    if ymax > 8:
-        ax.set_ylim(top=8)
+    if ymax > ymax_plot:
+        ax.set_ylim(top=ymax_plot)
     ymin = ax.get_ylim()[0]
     if ymin < 0:
         ax.set_ylim(bottom=0)
     ax.set_xlabel("Step", fontsize=18)
     ax.set_ylabel(loss_attr.replace("_", " ").title(), fontsize=18)
-    ax.set_title(
-        f"{loss_attr.replace('_', ' ').title()} vs Step {details} {experiment_properties}",
-        fontsize=20,
-    )
     if log_scale:
         ax.set_yscale("log")
     plt.tick_params(axis="both", which="major", labelsize=16)
-    ax.legend(fontsize=16)
+    ax.legend(
+        fontsize=16,
+        frameon=True,
+        facecolor="white",
+        edgecolor="black",
+        ncols=2,
+    )
     plt.grid()
     plt.tight_layout()
-    filename = f"housing_{loss_attr}_ci_plot"
+    if filename == "":
+        filename = f"housing_{loss_attr}_ci_plot"
     csv_path = f"results/housing_data/{filename}.csv"
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
     all_results_df.to_csv(csv_path)
@@ -188,40 +190,55 @@ def main():
     filters: Dict[str, List] = {
         "graph_name": ["ego"],
         "num_passes": [20],
-        "epsilon": [10.0],  # Remember to put floats here (1.0,...)
+        "epsilon": [
+            10.0,
+            0.5,
+            0.2,
+            1.0,
+            0.1,
+            2.0,
+        ],  # Remember to put floats here (1.0,...)
     }
     df = load_housing_data(param_filters=filters)
     assert not df.empty, "Empty dataframe, check you used floats in epsilon"
 
-    # Ensures we are on an unique setting in all the experiments
-    for _, param in PARAM_MAP.items():
-        if "seed" not in param:  # Allow seeding arguments.
-            assert (
-                len(df[param].unique()) == 1
-            ), f"Got multiple values for parameter {param}"
+    for epsilon in filters["epsilon"]:
+        epsilon = float(epsilon)
+        current_df = df[df["epsilon"] == epsilon]
 
-    # df = df[df["method"] != "LDP"]
-    # df = df[df["method"] != "ANTIPGD"]
-    # df = df[df["method"] != "BSR_LOCAL"]
-    df = df[df["method"] != "OPTIMAL_DL_MSG"]
-    # df = df[df["method"] != "OPTIMAL_LOCAL"]
+        # Ensures we are on an unique setting in all the experiments
+        for _, param in PARAM_MAP.items():
+            if "seed" not in param:  # Allow seeding arguments.
+                assert (
+                    len(current_df[param].unique()) == 1
+                ), f"Got multiple values for parameter {param}"
 
-    # Rename on plots:
-    for method_source, method_display_name in METHOD_DISPLAY_NAMES.items():
-        df["method"] = df["method"].replace(method_source, method_display_name)
+        # df = df[df["method"] != "LDP"]
+        if epsilon <= 1.0:  # Remove them from the plot as they don't converge.
+            current_df = current_df[current_df["method"] != "ANTIPGD"]
+            current_df = current_df[current_df["method"] != "BSR_LOCAL"]
 
-    assert not df.empty, "Empty dataframe, consider relaxing filters."
+        # Remove unused methods from data
+        current_df = current_df[current_df["method"] != "OPTIMAL_DL_MSG"]
+        # df = df[df["method"] != "OPTIMAL_LOCAL"]
 
-    # Usage:
-    plot_housing_results_with_ci(
-        df,
-        loss_attr="test_loss",  # Change to "train_loss" if needed
-        details="",
-        experiment_properties="",
-        debug=False,
-        log_scale=False,
-        min_max=False,
-    )
+        # Rename on plots:
+        for method_source, method_display_name in METHOD_DISPLAY_NAMES.items():
+            current_df["method"] = current_df["method"].replace(
+                method_source, method_display_name
+            )
+
+        assert not current_df.empty, "Empty dataframe, consider relaxing filters."
+
+        # Usage:
+        plot_housing_results_with_ci(
+            current_df,
+            loss_attr="test_loss",  # Change to "train_loss" if needed
+            debug=False,
+            log_scale=False,
+            min_max=False,
+            filename=f"housing_test_loss_ci_plot_epsilon{epsilon}",
+        )
 
     print("Finished plotting")
 
