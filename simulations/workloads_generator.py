@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 
 import numpy as np
 import optimal_factorization
@@ -223,11 +224,12 @@ def MF_ANTIPGD(nb_nodes, nb_iterations):
 
 
 # @profile_memory_usage
-def build_DL_workload(
+def build_DL_workload_old(
     matrix: np.ndarray, nb_steps: int, initial_power: int = 0, verbose: bool = False
 ) -> np.ndarray:
     """Creates the decentralized learning workload from a given matrix.
     Replication keeps spatial structure (e.g. a block in the matrix is a state of the system).
+    NB: Old function - should not use this one.
 
     Args:
         matrix (np.ndarray): the gossip matrix, dimension (n,n)
@@ -248,6 +250,39 @@ def build_DL_workload(
             np.eye(nb_steps, nb_steps, -i),
             np.linalg.matrix_power(matrix, i + initial_power),
         )
+    return time_matrix
+
+
+def build_DL_workload(
+    matrix: np.ndarray, nb_steps: int, initial_power: int = 0, verbose: bool = False
+) -> np.ndarray:
+    """
+    Creates the decentralized learning workload from a given matrix.
+    The block matrix has W^{initial_power} on the main diagonal,
+    W^{initial_power+1} on the first lower diagonal, etc.
+
+    Args:
+        matrix (np.ndarray): the gossip matrix, dimension (n,n)
+        nb_steps (int): number of steps to simulate
+        initial_power (int, default 0): Initial power of the workload matrix.
+
+    Returns:
+        time_matrix (np.ndarray): the stacked gossip matrix through time, dimension (n*nb_steps,n*nb_steps)
+    """
+    n = matrix.shape[0]
+    time_matrix = np.zeros((n * nb_steps, n * nb_steps))
+    # Precompute powers for efficiency
+
+    for diag in range(nb_steps):
+        power = np.linalg.matrix_power(matrix, diag + initial_power)
+        for block in range(nb_steps - diag):
+            row_start = (block + diag) * n
+            row_end = row_start + n
+            col_start = block * n
+            col_end = col_start + n
+            time_matrix[row_start:row_end, col_start:col_end] = power
+        if verbose:
+            print(f"Filled diagonal {diag+1}/{nb_steps}", end="\r")
     return time_matrix
 
 
@@ -537,8 +572,10 @@ def MF_OPTIMAL_local(
     return C_optimal
 
 
-def BSR_local_factorization(nb_iterations):
-    """Code from https://github.com/npkalinin/Matrix-Factorization-DP-Training"""
+def BSR_local_factorization(nb_iterations, nb_epochs: Optional[int]):
+    """Code inspired from https://github.com/npkalinin/Matrix-Factorization-DP-Training
+    If nb_epochs is None, just return the square root, but this may make the sensitivity explode.
+    """
 
     # Workload without momentum
     workload_tensor = torch.ones(nb_iterations)
@@ -549,9 +586,31 @@ def BSR_local_factorization(nb_iterations):
     for k in range(1, len(workload_tensor)):
         y[k] = (workload_tensor[k] - torch.dot(y[1:k], y[1:k].flip(0))) / (2 * y[0])
 
-    #
     C = toeplitz(y)
+    if nb_epochs is None:
+        return C
+
+    band_width = nb_iterations // nb_epochs  # Should force sensitivity of 1
+
+    mask = (
+        np.subtract.outer(np.arange(nb_iterations), np.arange(nb_iterations))
+        >= band_width
+    )
+    C[mask] = 0
+
+    # Old code snippet, optimized above
+    # C_copy = np.copy(C)
+    # for i in range(nb_iterations):
+    #     for j in range(nb_iterations):
+    #         if i - j >= band_width:
+    #             C_copy[i, j] = 0
+    # assert np.allclose(C_copy, C)
+
     return C
+
+
+def SR_local_factorization(nb_iterations):
+    return BSR_local_factorization(nb_iterations=nb_iterations, nb_epochs=None)
 
 
 def build_projection_workload(
