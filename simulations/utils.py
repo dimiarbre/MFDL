@@ -1,10 +1,16 @@
 import time
 import tracemalloc
+import warnings
 from typing import Literal
 
 import networkx as nx
 import numpy as np
 from fedivertex import GraphLoader
+
+warnings.filterwarnings(
+    "ignore",
+    message="WARNING:absl:WARNING: The JSON-LD `@context` is not standard. Refer to the official @context (e.g., from the example datasets in https://github.com/mlcommons/croissant/tree/main/datasets/1.0). The different keys are: {'samplingRate', 'examples', 'rai'}",
+)
 
 # Dictionary to rename methods for display
 METHOD_DISPLAY_NAMES = {
@@ -13,7 +19,7 @@ METHOD_DISPLAY_NAMES = {
     "ANTIPGD": "ANTIPGD",
     "BSR_LOCAL": "BSR",
     "OPTIMAL_LOCAL": "MF (Choquette-Choo, 2023)",
-    "OPTIMAL_DL_MSG": "Privacy Workload Optimal",
+    "OPTIMAL_DL_MSG": "Optimal (Message Loss)",
     "OPTIMAL_DL_POSTAVG": "MAFALDA-SGD (Ours)",
 }
 
@@ -24,10 +30,19 @@ METHOD_COLORS = {
     "ANTIPGD": "#ff7f0e",
     "BSR": "#8c564b",
     "MF (Choquette-Choo, 2023)": "#2ca02c",
-    "Privacy Workload Optimal": "#17becf",
+    "Optimal (Message Loss)": "#17becf",
     "MAFALDA-SGD (Ours)": "#d62728",
 }
 
+METHOD_MARKERS = {
+    "Unnoised baseline": "o",
+    "DP-SGD": "s",
+    "ANTIPGD": "*",
+    "BSR": "H",
+    "MF (Choquette-Choo, 2023)": "X",
+    "Optimal (Message Loss)": ">",
+    "MAFALDA-SGD (Ours)": "s",
+}
 GraphName = Literal[
     "expander",
     "empty",
@@ -118,8 +133,13 @@ def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
         case "peertube":
             loader = GraphLoader()
             G = loader.get_graph(
-                software="peertube", graph_type="follow", index=1, disable_tqdm=True
+                software="peertube",
+                graph_type="follow",
+                index=1,
+                disable_tqdm=True,
+                # only_largest_component=True,
             )
+            G = nx.Graph(G)  # Convert to undirected graph
         case "chain":
             G = nx.path_graph(n)
         case _:
@@ -220,6 +240,11 @@ def main():
     graph_name: GraphName = "peertube"
     G = get_graph(graph_name, 0, 0)
     print(G.number_of_nodes())
+    max_degree = max(dict(G.degree()).values())
+    print(f"Highest node degree: {max_degree}")
+    matrix = get_communication_matrix(G)
+    most_connected_node = max(G.degree, key=lambda x: x[1])[0]
+    print(f"Most connected node: {most_connected_node}")
 
 
 if __name__ == "__main__":
