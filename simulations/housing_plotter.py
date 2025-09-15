@@ -216,10 +216,11 @@ def main():
         # df = df[df["method"] != "LDP"]
         if epsilon <= 1.0:  # Remove them from the plot as they don't converge.
             current_df = current_df[current_df["method"] != "ANTIPGD"]
-            current_df = current_df[current_df["method"] != "BSR_LOCAL"]
+            current_df = current_df[current_df["method"] != "BSR_BANDED_LOCAL"]
 
         # Remove unused methods from data
         current_df = current_df[current_df["method"] != "OPTIMAL_DL_MSG"]
+        current_df = current_df[current_df["method"] != "BSR_LOCAL"]
         # df = df[df["method"] != "OPTIMAL_LOCAL"]
 
         # Rename on plots:
