@@ -88,14 +88,32 @@ def compute_muffliato_privacy_loss(
     # )
 
     B = PNDP_workload
-    # Let B = P @ W.
-    # For Muffliato, the sensitivity is B^+ @ B (since C = Identity)
-    # W is lower triangular of full rank, thus B is of maximal rank (P being a projection).
-    # Thus, B^+ @ B = B.T @ (B @ B.T)^{-1} @ B
-    # Now, we know (B @ B.T)^{-1} @ B is the solution to the linear system (B @ B.T) X = B
-    # Thus, we solve and get X = (B @ B.T)^{-1} @ B, and just need B.T @ X
-    X = np.linalg.solve(B @ B.T, B)  # shape (m, n)
-    PW_proj = B.T @ X
+    # Create the "additional knowledge" workload.
+    for t in range(nb_steps):
+        line = np.zeros(nb_nodes * nb_steps)
+        line[nb_nodes * t + attacker] = 1
+        B = np.vstack([B, line])
+
+    # Main method (slow)
+    PW_proj = np.linalg.pinv(B) @ B
+
+    # Method 2: use SVD decomposition
+    # We compute PW_proj = np.linalg.pinv(B) @ B
+    # U, S, Vt = np.linalg.svd(B, full_matrices=False)
+    # tol = max(B.shape) * S[0] * np.finfo(float).eps
+    # r = (S > tol).sum()
+    # PW_proj = Vt[:r].T @ Vt[:r]
+
+    # The below does not really hold when considering additional lines of information for B like above...
+
+    # # Let B = P @ W.
+    # # For Muffliato, the sensitivity is B^+ @ B (since C = Identity)
+    # # W is lower triangular of full rank, thus B is of maximal rank (P being a projection).
+    # # Thus, B^+ @ B = B.T @ (B @ B.T)^{-1} @ B
+    # # Now, we know (B @ B.T)^{-1} @ B is the solution to the linear system (B @ B.T) X = B
+    # # Thus, we solve and get X = (B @ B.T)^{-1} @ B, and just need B.T @ X
+    # X = np.linalg.solve(B @ B.T, B)  # shape (m, n)
+    # PW_proj = B.T @ X
 
     # TODO: compute the sensitivity (max of sum... cf paper).
     sensitivities = []
@@ -537,6 +555,11 @@ def main():
     #     nb_repetitions=nb_repetitions,
     #     alpha=alpha,
     # )
+
+    # Debug config
+    # graph_configs = [
+    #     {"graph_name": "cycle", "nb_nodes": 100, "seed": 42, "attacker": 0},
+    # ]
 
     graph_configs = [
         {"graph_name": "erdos", "nb_nodes": 100, "seed": 42, "attacker": 0},
