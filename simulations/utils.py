@@ -62,6 +62,14 @@ GraphName = Literal[
     "regular",
 ]
 
+GRAPH_RENAME = {
+    "expander": "Expander",
+    "erdos": "Erdős-Rényi",
+    "peertube (connex component)": "Peertube (Connex Component)",
+    "ego": "Facebook Ego",
+    "florentine": "Florentine",
+}
+
 
 def expander_graph(n, d, seed):
     if d < n:
@@ -107,7 +115,9 @@ def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
             nb_tries = 0
             G = nx.empty_graph(n)
             while not connex:
-                G = nx.erdos_renyi_graph(n, np.log(n) / n, seed=seed + nb_tries)
+                G = nx.erdos_renyi_graph(
+                    n, np.log(n) / n, seed=1000 * seed + nb_tries
+                )  # Have to expand so that seeds don't colide.
                 connex = nx.is_connected(G)
                 nb_tries += 1
         case "grid":

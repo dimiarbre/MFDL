@@ -9,7 +9,7 @@ import scienceplots
 import utils
 import workloads_generator
 from matplotlib.lines import Line2D
-from utils import GraphName
+from utils import GRAPH_RENAME, GraphName
 
 
 def epsilon_upper_bound(
@@ -297,6 +297,9 @@ def plot_privacy_loss_multiple_graphs(
     markers = ["o", "s", "D", "^", "v", "P", "*", "X"]  # Add more if needed
     for idx, config in enumerate(graph_configs):
         graph_name = config["graph_name"]
+        graph_display_name = graph_name
+        if graph_name in GRAPH_RENAME:
+            graph_display_name = GRAPH_RENAME[graph_name]
         nb_nodes = config["nb_nodes"]
         seed = config["seed"]
         attacker = config["attacker"]
@@ -373,7 +376,7 @@ def plot_privacy_loss_multiple_graphs(
             ecolor=color,
             elinewidth=2,
             capsize=5,
-            label=f"{graph_name} MF (Min/Max)",
+            label=f"{graph_display_name} MF (Min/Max)",
         )
 
         # Add error bars for Muffliato-SGD (min/max)
@@ -392,7 +395,7 @@ def plot_privacy_loss_multiple_graphs(
             ecolor=color,
             elinewidth=2,
             capsize=5,
-            label=f"{graph_name} Muffliato-SGD (Min/Max)",
+            label=f"{graph_display_name} Muffliato-SGD (Min/Max)",
         )
 
         graph_lines.append(
@@ -401,7 +404,7 @@ def plot_privacy_loss_multiple_graphs(
                 [0],
                 color=color,
                 lw=3,
-                label=graph_name,
+                label=graph_display_name,
                 marker=marker,
                 markersize=10,
             )

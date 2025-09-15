@@ -227,11 +227,11 @@ def plot_one_figure(
         )
 
     # plt.title(title, fontsize=26)
-    plt.xlabel("Number of Nodes", fontsize=24)
-    plt.ylabel(y_axis_name, fontsize=24)
-    plt.tick_params(axis="both", which="major", labelsize=16)
+    plt.xlabel("n", fontsize=27)
+    plt.ylabel(y_axis_name, fontsize=27)
+    plt.tick_params(axis="both", which="major", labelsize=18)
     plt.legend(
-        fontsize=18,
+        fontsize=20,
         frameon=True,
         facecolor="white",
         edgecolor="black",
@@ -302,6 +302,7 @@ def generate_plots(df, hide_figures: bool = False, only_optimal: bool = False):
             label_marker_map=label_marker_map,
             title=title,
             savepath=csvpath,
+            y_axis_name=r"$\mathcal{L}_{\mathrm{opti}}$",
         )
 
         # title = f"Mean Optimization Loss vs Number of Nodes ({graph_name})"
