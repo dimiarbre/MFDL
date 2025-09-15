@@ -14,8 +14,8 @@ epsilons=(1 0.1 10 0.5 2 0.2 5)
 # nb_nodes_list=(148)
 # graph_names=(ego)
 
-nb_nodes_list=(271)
-graph_names=("peertube (connex component)")
+# nb_nodes_list=(271)
+# graph_names=("peertube (connex component)")
 
 lrs=(0.1)
 
@@ -30,6 +30,15 @@ for arg in "$@"; do
         recompute_flag="--recompute"
     elif [[ "$arg" == "--pre_cache" ]]; then
         pre_cache_flag="--pre_cache"
+    elif [[ "$arg" == "--graph=florentine" ]]; then
+        nb_nodes_list=(15)
+        graph_names=("florentine")
+    elif [[ "$arg" == "--graph=ego" ]]; then
+        nb_nodes_list=(148)
+        graph_names=("ego")
+    elif [[ "$arg" == "--graph=peertube" ]]; then
+        nb_nodes_list=(271)
+        graph_names=("peertube (connex component)")
     else
         echo "Error: Unrecognized argument '$arg'" >&2
         exit 1
@@ -54,7 +63,6 @@ done
 
 echo "Total configurations: $total_configs"
 
-failed_configs=""
 current_config=0
 
 max_jobs=13
@@ -100,4 +108,3 @@ hours=$((elapsed / 3600))
 minutes=$(((elapsed % 3600) / 60))
 seconds=$((elapsed % 60))
 echo "All experiments took ${hours}h ${minutes}m ${seconds}s."
-echo Failed configs: "$failed_configs"
