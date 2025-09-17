@@ -16,8 +16,10 @@ def epsilon_upper_bound(
     G: nx.Graph, u: int, v: int, T: int, delta_phi: float, alpha: float, sigma: float
 ) -> float:
     """
-    Compute the upper bound eps^T_{u->v}(alpha) following theorem 11 in https://arxiv.org/pdf/2206.05091. This is the original paper's formula.
+    Compute the upper bound eps^T_{u->v}(alpha) following theorem 11 in https://arxiv.org/pdf/2206.05091. This is the original paper's CORRECTED formula (different from the NeurIPS paper).
+    This code assumes a fixed communication graph G.
 
+    We also clip the output to be the one of LDP when it is not, as recommanded after discussion with the original authors.
     """
     W = utils.get_communication_matrix(G)
     n = W.shape[0]
@@ -42,7 +44,11 @@ def epsilon_upper_bound(
         norms = np.linalg.norm(product, axis=0) ** 2
         for w in G.neighbors(v):
             total += product[u, w] / norms[w] * (T - s)
-    return coeff * total
+
+    if total > T:  # Clip to LDP bound: this is composition theorem.
+        total = T
+    epsilon = coeff * total
+    return epsilon
 
 
 def compute_muffliato_privacy_loss(
@@ -86,8 +92,8 @@ def compute_muffliato_privacy_loss(
     #     participation_interval=participation_interval,
     #     nb_steps=nb_steps,
     # )
-
     B = PNDP_workload
+    B_old = B.copy()
     # Create the "additional knowledge" workload.
     for t in range(nb_steps):
         line = np.zeros(nb_nodes * nb_steps)
@@ -112,8 +118,12 @@ def compute_muffliato_privacy_loss(
     # # Thus, B^+ @ B = B.T @ (B @ B.T)^{-1} @ B
     # # Now, we know (B @ B.T)^{-1} @ B is the solution to the linear system (B @ B.T) X = B
     # # Thus, we solve and get X = (B @ B.T)^{-1} @ B, and just need B.T @ X
-    # X = np.linalg.solve(B @ B.T, B)  # shape (m, n)
-    # PW_proj = B.T @ X
+
+    # X = np.linalg.solve(B_old @ B_old.T, B_old)  # shape (m, n)
+    # PW_proj_old = B_old.T @ X
+    PW_proj_old = np.linalg.pinv(B_old) @ B_old
+
+    print("Norm of PW_proj_old - PW_proj:", np.linalg.norm(PW_proj_old - PW_proj))
 
     # TODO: compute the sensitivity (max of sum... cf paper).
     sensitivities = []
@@ -130,6 +140,17 @@ def compute_muffliato_privacy_loss(
                     node=node,
                 )
             )
+            # sensitivity_old = workloads_generator.compute_cyclic_repetitions_1node(
+            #     X=PW_proj_old,
+            #     participation_interval=participation_interval,
+            #     nb_steps=nb_steps,
+            #     nb_nodes=nb_nodes,
+            #     node=node,
+            # )
+            # sensitivitiy_new = sensitivities[-1]
+            # print(
+            #     f"[{sensitivity_old>=sensitivitiy_new}]Old - new: {sensitivity_old - sensitivitiy_new}."
+            # )
 
     # sens = workloads_generator.compute_cyclic_repetitions(
     #     PW_proj,
@@ -261,7 +282,7 @@ def plot_privacy_loss_for_graph(
             ecolor=color,
             elinewidth=2,
             capsize=5,
-            label=f"{name} (Min/Max)",
+            label=f"{name}",
         )
 
     # Create a pandas DataFrame with all plotting data
@@ -394,7 +415,7 @@ def plot_privacy_loss_multiple_graphs(
             ecolor=color,
             elinewidth=2,
             capsize=5,
-            label=f"{graph_display_name} MF (Min/Max)",
+            label=f"{graph_display_name} MF",
         )
 
         # Add error bars for Muffliato-SGD (min/max)
@@ -413,7 +434,7 @@ def plot_privacy_loss_multiple_graphs(
             ecolor=color,
             elinewidth=2,
             capsize=5,
-            label=f"{graph_display_name} Muffliato-SGD (Min/Max)",
+            label=f"{graph_display_name} Muffliato-SGD",
         )
 
         graph_lines.append(
@@ -431,8 +452,10 @@ def plot_privacy_loss_multiple_graphs(
     # Separate legends: one for accounting methods (bottom left), one for graphs (below it)
     # Accounting method legend (placed above graph legend)
     accounting_elements = [
-        Line2D([0], [0], color="black", linestyle="--", lw=2, label="Muffliato-SGD"),
-        Line2D([0], [0], color="black", linestyle="-", lw=2, label="MF-DL (ours)"),
+        Line2D(
+            [0], [0], color="black", linestyle="--", lw=2, label="Cyffers et al. (2022)"
+        ),
+        Line2D([0], [0], color="black", linestyle="-", lw=2, label="Ours"),
     ]
 
     plt.xlabel("Shortest Path Length from Attacker", fontsize=18)
@@ -466,7 +489,7 @@ def plot_privacy_loss_multiple_graphs(
     # Place the accounting legend above the graph legend
     accounting_legend = plt.legend(
         handles=accounting_elements,
-        title="Accounting (Min/Max)",
+        title="Accounting",
         fontsize=13,
         title_fontsize=15,
         handlelength=3,
