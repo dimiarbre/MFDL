@@ -15,7 +15,7 @@ warnings.filterwarnings(
 # Dictionary to rename methods for display
 METHOD_DISPLAY_NAMES = {
     "Unnoised baseline": "Unnoised baseline",
-    "LDP": "DP-SGD",
+    "LDP": "DP-P-SGD",
     "ANTIPGD": "ANTIPGD",
     "BSR_LOCAL": "SR (Nikita \\& Lampert, 2024)",  # Banded SR, is never used, and thus named wrongly.
     "BSR_BANDED_LOCAL": "BSR (Nikita \\& Lampert, 2024)",  # Banded SR, is never used, and thus named wrongly.
@@ -27,7 +27,7 @@ METHOD_DISPLAY_NAMES = {
 # Dictionary to assign colors to each method
 METHOD_COLORS = {
     "Unnoised baseline": "#1f77b4",
-    "DP-SGD": "#9467bd",
+    "DP-P-SGD": "#9467bd",
     "ANTIPGD": "#ff7f0e",
     "SR (Nikita \\& Lampert, 2024)": "#e377c2",
     "BSR (Nikita \\& Lampert, 2024)": "#8c564b",
@@ -38,7 +38,7 @@ METHOD_COLORS = {
 
 METHOD_MARKERS = {
     "Unnoised baseline": "o",
-    "DP-SGD": "s",
+    "DP-P-SGD": "s",
     "ANTIPGD": "*",
     "SR (Nikita \\& Lampert, 2024)": "^",
     "BSR (Nikita \\& Lampert, 2024)": "H",
