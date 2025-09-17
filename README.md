@@ -1,23 +1,81 @@
 # MFDL: Matrix Factorization for Decentralized Learning
 
+Matrix Factorization for Decentralized Learning (MFDL) is a Python package for simulating and analyzing decentralized learning algorithms using matrix factorization techniques.
+
+## Features
+- Optimal workload experiments
+- Housing dataset experiments with graph-based correlations
+- Accounting experiments
+- Visualization tools for simulation results
+
+## Prerequisites
+- Python 3.12 (only tested version)
+- Recommended: virtual environment (e.g., `venv` or `conda`)
+
 ## Installation
-The only tested python version is python3.12. Once in an environment, run
 
-```bash
-pip install -r requirement.txt
-```
+1. Install dependencies:
+    ```bash
+    pip install -r requirement.txt
+    ```
 
-## Running:
-For the comparison between optimal workloads
+## Usage
+
+### 1. Optimal Workload Experiments
+
+Run:
 ```bash
 python simulations/factorization_experiments.py
 ```
 
-For the housing experiments, edit the configurations you want in `experiments_housing.sh` and then run it.
+### 2. Housing Experiments
+
+**Step 1: Pre-cache optimal correlations**
+
+Run for each graph (`peertube`, `florentine`, `ego`):
 ```bash
-./experiments_housing.sh
+./experiments_housing.sh --threads=1 --graph=<graph_name> --pre_cache
 ```
-Then, use `simulations/housing_plotter.py` to visualize the data you want.
+Cached workloads will be stored under `cache/`.
+
+**Step 2: Run simulations**
+
+Set environment variables for optimal parallelism:
+```bash
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+./experiments_housing.sh --threads=15 --graph=peertube
+```
+*Adjust `--threads` and `--graph` as needed. As a general rule of thumbs, each process will generate 8 threads, so have threads = number of cores//8*
+
+**Step 3: Visualize results**
+
+```bash
+python simulations/housing_plotter.py
+```
+
+### 3. Accounting Experiments
+
+Run:
+```bash
+python simulations/muffliato_accounting.py
+```
 
 ## Datasets
-* The Facebook ego graph can be downloaded here: https://snap.stanford.edu/data/ego-Facebook.html
+
+- **Facebook Ego Graph:**  
+  Download from [SNAP](https://snap.stanford.edu/data/ego-Facebook.html) and place under `graphs/facebook/` (ensure at least `414.edges` is present).
+
+## Troubleshooting
+
+- If you encounter issues with parallelism or performance, ensure the environment variables above are set before running simulations.
+- For missing datasets, verify the correct file paths and download locations.
+
+## License
+
+See `LICENSE` for details.
+
+## Contact
+
+For questions or contributions, please open an issue or pull request.
