@@ -28,7 +28,14 @@ Run:
 python simulations/factorization_experiments.py
 ```
 
+Resulting figures are stored under `figures/factorization_simulation/`. 
+
 ### 2. Housing Experiments
+Note this is the most expensive computation here!
+Step 1 should require around 200GB of RAM (creating the workloads for peertube and ego is expensive, even if we optimize it to the maximum by caching repetitive parts), and step 2 requires simulating decentralized learning in multiple settings, which may take time. 
+It is recommended to 
+For the paper, we used a 256 cores machine with 512GB of RAM.
+
 
 **Step 1: Pre-cache optimal correlations**
 
@@ -54,6 +61,10 @@ export OPENBLAS_NUM_THREADS=1
 ```bash
 python simulations/housing_plotter.py
 ```
+> Figures will be under `figures/housing/`.
+`epsilon` in their description is somewhat poorly named, and corresponds to $\frac{1}{\sigma}$.
+
+Run `misc/epsilon_computation.py` to have the corresponding $\varepsilon$ used in the paper.
 
 ### 3. Accounting Experiments
 
