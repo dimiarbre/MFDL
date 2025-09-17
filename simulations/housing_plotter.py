@@ -31,7 +31,7 @@ def extract_params_from_filename(filename: str) -> Dict[str, str]:
     Returns a dictionary of parameter names to values.
     """
     basename = os.path.basename(filename)
-    pattern = r"(_graph[A-Za-z0-9]+|_nodes\d+|_eps[\d\.]+|_reps\d+|_nbbatches\d+|_mbps\d+|_lr[\d\.]+|_seed\d+|_mbsize\d+|_steps\d+)"
+    pattern = r"(_graph[ A-Za-z0-9\(\)]+|_nodes\d+|_eps[\d\.]+|_reps\d+|_nbbatches\d+|_mbps\d+|_lr[\d\.]+|_seed\d+|_mbsize\d+|_steps\d+)"
     matches = re.findall(pattern, basename)
     params = {}
     float_params = {"epsilon", "lr"}
@@ -62,6 +62,8 @@ def extract_params_from_filename(filename: str) -> Dict[str, str]:
 def load_housing_data(
     base_dir: str = "results/housing",
     param_filters: Optional[Dict[str, List]] = None,
+    methods_to_remove=[],
+    only_last_step=False,
 ) -> pd.DataFrame:
     """
     Loads dataframes from files matching the parameter filters.
@@ -69,7 +71,7 @@ def load_housing_data(
     Returns concatenated dataframe of all matching files.
     """
     dfs = []
-    for fname in os.listdir(base_dir):
+    for fname in sorted(os.listdir(base_dir)):
         if not fname.endswith(".csv"):
             continue
         try:
@@ -89,6 +91,14 @@ def load_housing_data(
         for k, v in params.items():
             assert len(df[k].unique()) == 1
             assert df[k].iloc[0] == v
+
+        # Optimization to reduce memory consumption.
+        for method in methods_to_remove:
+            df = df[df["method"] != method]
+        if only_last_step:
+            # For each dataloader_seed, select all rows with the maximum step
+            max_steps = df.groupby("dataloader_seed")["step"].transform("max")
+            df = df[df["step"] == max_steps].reset_index(drop=True)
         dfs.append(df)
         print(f"Loaded {len(df)} rows from {fname}")
 
