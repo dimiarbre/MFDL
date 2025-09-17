@@ -18,11 +18,16 @@ def solve_epsilon(mu, delta_target):
     return mp.findroot(f, [-500, 500], solver="bisect")  # initial guess can be tuned
 
 
-# Example usage
-sigmas = [0.1, 0.5, 2, 5]
-for sigma in sigmas:
-    mu = 1 / sigma
-    delta_target = 1e-6
-    epsilon = solve_epsilon(mu, delta_target)
+def main():
+    sigmas = [0.1, 0.5, 2, 5]
+    for sigma in sigmas:
+        mu = 1 / sigma
+        delta_target = 1e-6
+        epsilon = solve_epsilon(mu, delta_target)
 
-    print(f"Sigma:{sigma} -> Epsilon:{epsilon}")
+        print(f"Sigma:{sigma} -> Epsilon:{epsilon}")
+
+
+# Example usage
+if __name__ == "__main__":
+    main()
