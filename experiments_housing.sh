@@ -23,6 +23,7 @@ seeds=(421 422 423 424 425 426 427 428 429 430 431 432 433 434 435 436 437 438 4
 
 
 
+max_jobs=1
 recompute_flag=""
 pre_cache_flag=""
 for arg in "$@"; do
@@ -30,6 +31,7 @@ for arg in "$@"; do
         recompute_flag="--recompute"
     elif [[ "$arg" == "--pre_cache" ]]; then
         pre_cache_flag="--pre_cache"
+        max_jobs=1
     elif [[ "$arg" == "--graph=florentine" ]]; then
         nb_nodes_list=(15)
         graph_names=("florentine")
@@ -39,6 +41,8 @@ for arg in "$@"; do
     elif [[ "$arg" == "--graph=peertube" ]]; then
         nb_nodes_list=(271)
         graph_names=("peertube (connex component)")
+    elif [[ "$arg" == --threads=* ]]; then
+        max_jobs="${arg#--threads=}"
     else
         echo "Error: Unrecognized argument '$arg'" >&2
         exit 1
@@ -65,7 +69,6 @@ echo "Total configurations: $total_configs"
 
 current_config=0
 
-max_jobs=13
 job_count=0
 pids=()
 
