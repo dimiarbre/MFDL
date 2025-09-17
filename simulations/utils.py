@@ -65,7 +65,8 @@ GraphName = Literal[
 GRAPH_RENAME = {
     "expander": "Expander",
     "erdos": "Erdős-Rényi",
-    "peertube (connex component)": "Peertube (Connex Component)",
+    "peertube (connex component)": "Peertube",
+    "peertube": "Peertube (full)",
     "ego": "Facebook Ego",
     "florentine": "Florentine",
 }
