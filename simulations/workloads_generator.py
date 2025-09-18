@@ -9,10 +9,10 @@ from scipy.linalg import toeplitz
 from utils import graph_require_seed, profile_memory_usage
 
 
-def get_pi(nb_nodes, nb_iterations):
+def get_commutation_matrix(nb_nodes, nb_iterations):
     """
-    Generates a permutation matrix that goes from a spatial repartition (n*T) to a temporal repartion (T*n).
-    It returns a matrix Pi. If X is a vector composed of nb_nodes blocks of nb_steps values, then Pi @ X is a permutation of this vector composed of nb_steps blocks of nb_nodes values
+    Generates a coomutation matrix S_{nb_nodes, nb_iterations} that goes from a spatial repartition (n*T) to a temporal repartion (T*n).
+    It returns a matrix S. If X is a vector composed of nb_nodes blocks of nb_steps values, then S @ X is a permutation of this vector composed of nb_steps blocks of nb_nodes values
     """
     # TODO: This needs to be redone for optimization purposes. As it stands, this instantiates a big matrix, and we run W @ pi down the line. Since it is a permutation, we could just have a reindexing instead. For instance, with 3 nodes and 3 iterations, we would have something like  pi = [0,3,6,1,4,7,2,5,8], and just compute W[pi]. This would be much more efficient in memory.
     if nb_nodes == 0 or nb_iterations == 0:
@@ -33,14 +33,16 @@ def get_pi(nb_nodes, nb_iterations):
     return permutation
 
 
-def get_pi_reindexing(nb_nodes, nb_iterations):
+def get_commutation_reindexing(nb_nodes, nb_iterations):
     """
     Returns a reindexing array for the permutation from spatial (n*T) to temporal (T*n) repartition.
     For example, with 3 nodes and 3 iterations, returns [0, 3, 6, 1, 4, 7, 2, 5, 8].
     Usage:
-    pi_old = get_pi(nb_nodes, nb_iterations)
-    pi, pi_inv = get_pi_reindexing(nb_nodes, nb_iterations)
+    pi_old = get_commutation_matrix(nb_nodes, nb_iterations)
+    pi, pi_inv = get_commutation_reindexing(nb_nodes, nb_iterations)
     assert np.allclose(W[pi], pi_old @ W) # For all matrixes W.
+
+    Or, if the computation was W @ pi_old, consider instead W[:, pi_inv].
     """
     if nb_nodes == 0 or nb_iterations == 0:
         raise ValueError("0-dimensional permutation is not allowed")
@@ -334,7 +336,7 @@ def build_local_DL_gram_workload(
     # pi = get_pi(nb_nodes=nb_nodes, nb_iterations=nb_steps)  # nT * Tn
     # A = dl_workload @ pi
 
-    pi, pi_inv = get_pi_reindexing(nb_nodes=nb_nodes, nb_iterations=nb_steps)
+    pi, pi_inv = get_commutation_reindexing(nb_nodes=nb_nodes, nb_iterations=nb_steps)
     A = dl_workload[
         :, pi_inv
     ]  # Equivalent to the previous A = dl_workload @ pi, see the tests if you want to make sure.

@@ -9,7 +9,7 @@ try:
         build_DL_workload,
         build_DL_workload_old,
         build_participation_matrix,
-        get_pi,
+        get_commutation_matrix,
     )
 except:
     sys.path.insert(
@@ -19,13 +19,13 @@ except:
         build_DL_workload,
         build_DL_workload_old,
         build_participation_matrix,
-        get_pi,
+        get_commutation_matrix,
     )
 
 
 @pytest.mark.benchmark(group="get_pi")
 def test_get_pi_speed(benchmark):
-    benchmark(get_pi, 100, 100)
+    benchmark(get_commutation_matrix, 100, 100)
 
 
 @pytest.mark.parametrize(

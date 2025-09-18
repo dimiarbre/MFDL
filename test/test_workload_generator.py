@@ -10,8 +10,8 @@ try:
     from simulations.workloads_generator import (
         build_DL_workload,
         build_DL_workload_old,
-        get_pi,
-        get_pi_reindexing,
+        get_commutation_matrix,
+        get_commutation_reindexing,
     )
 except ModuleNotFoundError:
     # Trick to resolve imports
@@ -21,24 +21,24 @@ except ModuleNotFoundError:
     from workloads_generator import (
         build_DL_workload,
         build_DL_workload_old,
-        get_pi,
-        get_pi_reindexing,
+        get_commutation_matrix,
+        get_commutation_reindexing,
     )
 
 
 def test_get_pi_zero_nodes():
     with pytest.raises(Exception):
-        get_pi(0, 5)
+        get_commutation_matrix(0, 5)
 
 
 def test_get_pi_zero_time():
     with pytest.raises(Exception):
-        get_pi(421, 0)
+        get_commutation_matrix(421, 0)
 
 
 def test_get_pi_negative_iterations():
     with pytest.raises(Exception):
-        get_pi(5, -2)
+        get_commutation_matrix(5, -2)
 
 
 @pytest.mark.parametrize(
@@ -47,10 +47,10 @@ def test_get_pi_negative_iterations():
 )
 def test_get_pi_vs_reindexing(nb_nodes, nb_iterations):
     rng = np.random.default_rng()
-    p1 = get_pi(nb_nodes, nb_iterations)
+    p1 = get_commutation_matrix(nb_nodes, nb_iterations)
     p1_inv = np.linalg.inv(p1)
 
-    p2, p2_inv = get_pi_reindexing(nb_nodes, nb_iterations)
+    p2, p2_inv = get_commutation_reindexing(nb_nodes, nb_iterations)
     for _ in range(100):
         W = rng.normal(size=(nb_nodes * nb_iterations, nb_nodes * nb_iterations))
 
