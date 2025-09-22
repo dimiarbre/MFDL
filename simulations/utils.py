@@ -115,12 +115,16 @@ def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
             connex = False
             nb_tries = 0
             G = nx.empty_graph(n)
-            while not connex:
+            while not connex and nb_tries < 1000:
                 G = nx.erdos_renyi_graph(
                     n, np.log(n) / n, seed=1000 * seed + nb_tries
                 )  # Have to expand so that seeds don't colide.
                 connex = nx.is_connected(G)
                 nb_tries += 1
+            if nb_tries >= 1000:
+                raise ValueError(
+                    "Required too long to generate a fully-connected Erdos graph"
+                )
         case "grid":
             if int(np.sqrt(n)) ** 2 != n:
                 raise ValueError(

@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import scienceplots
 import seaborn as sns
+from scipy.stats import t
 from utils import (
     METHOD_COLORS,
     METHOD_DISPLAY_NAMES,
@@ -80,6 +81,7 @@ def generate_all_configurations(
 def compute_all_experiments(recompute: bool, verbose: bool = False) -> pd.DataFrame:
 
     data_path = "results/factorization/experiment.csv"
+    os.makedirs(os.path.dirname(data_path), exist_ok=True)
     df = pd.DataFrame({})
     if not recompute:  # Try to load already existing dataframe
         try:
@@ -188,6 +190,7 @@ def plot_one_figure(
         .reset_index()
     )
     summary["sem"] = summary["std"] / summary["count"] ** 0.5
+    summary["ci95"] = summary["sem"] * t.ppf(0.975, summary["count"] - 1)
 
     # Plot with error bars (confidence intervals)
     # Order factorization_name according to METHOD_COLORS.keys()
@@ -219,7 +222,7 @@ def plot_one_figure(
         plt.errorbar(
             config["nb_nodes"],
             config["mean"],
-            yerr=config["sem"],
+            yerr=config["ci95"],
             label=label,
             marker=marker,
             capsize=4,
@@ -349,12 +352,15 @@ def main():
     # TODO: Save this df
 
     # Remove unneeded plot data for the paper.
-    df = df[
-        df["factorization_name"] != "OPTIMAL_DL_MSG"
-    ]  # Wrong optimization objective
-    df = df[
-        df["factorization_name"] != "BSR_LOCAL"
-    ]  # Wrong method, should use BSR_BANDED_LOCAL
+    methods_to_remove = [
+        "OPTIMAL_DL_MSG",
+        "BSR_LOCAL",
+        "BSR_BANDED_LOCAL",
+        "OPTIMAL_LOCAL",
+    ]
+    for method in methods_to_remove:
+        df = df[df["factorization_name"] != method]
+    df = df.copy()
 
     generate_plots(df, args.hidefigs, only_optimal=False)
     generate_plots(df, args.hidefigs, only_optimal=True)
