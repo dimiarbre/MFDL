@@ -20,6 +20,8 @@ Matrix Factorization for Decentralized Learning (MFDL) is a Python package for s
     ```
 
 ## Usage
+By default, all workload matrices are cached in the `cache/` directory to save computation time. Pre-computed matrices are included with this submission. To regenerate workloads from scratch, delete the `cache/` directory and rerun the experiments.
+
 
 ### 1. Optimal Workload Experiments
 
@@ -30,7 +32,14 @@ python simulations/factorization_experiments.py
 
 Resulting figures are stored under `figures/factorization_simulation/`. 
 
-### 2. Housing Experiments
+### 2. Accounting Experiments
+
+Run:
+```bash
+python simulations/muffliato_accounting.py
+```
+
+### 3. Housing Experiments
 Note this is the most expensive computation here!
 Step 1 should require around 200GB of RAM (creating the workloads for peertube and ego is expensive, even if we optimize it to the maximum by caching repetitive parts), and step 2 requires simulating decentralized learning in multiple settings, which may take time. 
 It is recommended to 
@@ -65,13 +74,6 @@ python simulations/housing_plotter.py
 `epsilon` in their description is somewhat poorly named, and corresponds to $\frac{1}{\sigma}$.
 
 Run `misc/epsilon_computation.py` to have the corresponding $\varepsilon$ used in the paper.
-
-### 3. Accounting Experiments
-
-Run:
-```bash
-python simulations/muffliato_accounting.py
-```
 
 ## Datasets
 
