@@ -241,6 +241,7 @@ def plot_one_figure(
     )
     plt.tight_layout()
     if savepath is not None:
+        os.makedirs(os.path.dirname(savepath), exist_ok=True)
         plt.savefig(savepath)
 
 
