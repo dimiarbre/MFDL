@@ -482,47 +482,27 @@ def plot_privacy_loss_multiple_graphs(
 
     plt.draw()  # Update positions
 
-    def add_accounting_legend(accounting_elements, graph_legend):
-        """
-        Adds the accounting legend to the plot, aligned with the graph legend if possible.
-        """
-        try:
-            bbox = graph_legend.get_window_extent()
-            inv = plt.gca().transAxes.inverted()
-            bbox_axes = inv.transform(bbox)
-            x0, y0 = bbox_axes[0]  # bottom-left corner of graph legend
-            x1, _ = bbox_axes[1]  # top-right corner
+    # Extract bbox of graph legend in axes coords
+    bbox = graph_legend.get_window_extent()
+    inv = plt.gca().transAxes.inverted()
+    bbox_axes = inv.transform(bbox)
+    x0, y0 = bbox_axes[0]  # bottom-left corner of graph legend
+    x1, _ = bbox_axes[1]  # top-right corner
 
-            # Accounting legend aligned to same y0
-            accounting_legend = plt.legend(
-                handles=accounting_elements,
-                title="Accounting",
-                fontsize=13,
-                title_fontsize=15,
-                handlelength=3,
-                frameon=True,
-                facecolor="white",
-                edgecolor="black",
-                loc="lower left",
-                bbox_to_anchor=(x1, y0),
-            )
-            plt.gca().add_artist(accounting_legend)
-        except Exception:
-            # Fallback: plot accounting legend at bottom right
-            accounting_legend = plt.legend(
-                handles=accounting_elements,
-                title="Accounting",
-                fontsize=13,
-                title_fontsize=15,
-                handlelength=3,
-                frameon=True,
-                facecolor="white",
-                edgecolor="black",
-                loc="lower right",
-            )
-            plt.gca().add_artist(accounting_legend)
-
-    add_accounting_legend(accounting_elements, graph_legend)
+    # Accounting legend aligned to same y0
+    accounting_legend = plt.legend(
+        handles=accounting_elements,
+        title="Accounting",
+        fontsize=13,
+        title_fontsize=15,
+        handlelength=3,
+        frameon=True,
+        facecolor="white",
+        edgecolor="black",
+        loc="lower left",
+        bbox_to_anchor=(x1, y0),
+    )
+    plt.gca().add_artist(accounting_legend)
 
     # Save plot data to CSV
     plot_df = pd.DataFrame(plot_data)
