@@ -176,7 +176,7 @@ def plot_housing_results_with_ci(
             steps, means_np - ci95s_np, means_np + ci95s_np, alpha=0.2, color=color
         )
 
-    ymax_plot = 8  # Manual bound for nicer figures
+    ymax_plot = 4  # Manual bound for nicer figures
     ymax = ax.get_ylim()[1]
     if ymax > ymax_plot:
         ax.set_ylim(top=ymax_plot)
