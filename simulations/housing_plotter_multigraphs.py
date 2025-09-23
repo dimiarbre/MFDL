@@ -50,6 +50,7 @@ def plot_final_test_loss_vs_epsilon(df, filters, graph_name):
                 mean_loss = np.mean(final_losses)
                 std_loss = np.std(final_losses)
                 n = len(final_losses)
+                # 95% confidence interval
                 ci = 1.96 * std_loss / np.sqrt(n) if n > 1 else 0
                 if method == "Unnoised baseline":
                     # Store only once (should be same for all epsilons)
@@ -157,8 +158,12 @@ def main():
                 5.0,
             ],  # Remember to put floats here (1.0,...)
         }
-        # methods_to_remove = ["OPTIMAL_DL_MSG", "BSR_LOCAL", "ANTIPGD"]
-        methods_to_remove = ["OPTIMAL_DL_MSG", "BSR_LOCAL"]
+        methods_to_remove = [
+            "OPTIMAL_DL_MSG",
+            "BSR_LOCAL",
+            "BSR_BANDED_LOCAL",
+            "OPTIMAL_LOCAL",
+        ]
         if "peertube" in graph_name:
             methods_to_remove.append("ANTIPGD")
         df = load_housing_data(

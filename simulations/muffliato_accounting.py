@@ -233,7 +233,7 @@ def plot_privacy_loss_for_graph(
     )
 
     plt.style.use("science")
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(12, 4))
 
     plot_data = []
 
@@ -326,7 +326,7 @@ def plot_privacy_loss_multiple_graphs(
     Legend: "...": Muffliato-SGD, "—" MF-DL, plus color for each graph.
     """
     plt.style.use(["science", "tableau-colorblind10"])
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(12, 4))
     plot_data = []
     graph_lines = []
 
@@ -415,6 +415,7 @@ def plot_privacy_loss_multiple_graphs(
             ecolor=color,
             elinewidth=2,
             capsize=5,
+            # markerfacecolor="none",  # hollow marker
             label=f"{graph_display_name} MF",
         )
 
@@ -434,6 +435,7 @@ def plot_privacy_loss_multiple_graphs(
             ecolor=color,
             elinewidth=2,
             capsize=5,
+            # markerfacecolor="none",  # hollow marker
             label=f"{graph_display_name} Muffliato-SGD",
         )
 
@@ -464,6 +466,7 @@ def plot_privacy_loss_multiple_graphs(
     plt.grid()
     plt.tick_params(axis="both", which="major", labelsize=14)
 
+    # Graph legend
     graph_legend = plt.legend(
         handles=graph_lines,
         title="Graph",
@@ -477,16 +480,16 @@ def plot_privacy_loss_multiple_graphs(
     )
     plt.gca().add_artist(graph_legend)
 
-    plt.tight_layout()
-    # Get the bounding box of the graph legend (in axes coordinates)
-    plt.draw()  # Needed to update legend positions
+    plt.draw()  # Update positions
+
+    # Extract bbox of graph legend in axes coords
     bbox = graph_legend.get_window_extent()
     inv = plt.gca().transAxes.inverted()
     bbox_axes = inv.transform(bbox)
-    x0, y0 = bbox_axes[0]  # lower left corner
-    x1, y1 = bbox_axes[1]  # upper right corner
+    x0, y0 = bbox_axes[0]  # bottom-left corner of graph legend
+    x1, _ = bbox_axes[1]  # top-right corner
 
-    # Place the accounting legend above the graph legend
+    # Accounting legend aligned to same y0
     accounting_legend = plt.legend(
         handles=accounting_elements,
         title="Accounting",
@@ -497,10 +500,9 @@ def plot_privacy_loss_multiple_graphs(
         facecolor="white",
         edgecolor="black",
         loc="lower left",
-        bbox_to_anchor=(x0, y1 + 0.002),  # Offset slightly above the graph legend
+        bbox_to_anchor=(x1, y0),
     )
     plt.gca().add_artist(accounting_legend)
-    # plt.tight_layout()
 
     # Save plot data to CSV
     plot_df = pd.DataFrame(plot_data)

@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from plotters import plot_housing_results
+from scipy.stats import t
 from utils import METHOD_COLORS, METHOD_DISPLAY_NAMES
 
 # Map from the name stored in filenames to the name in the columns.
@@ -139,18 +140,30 @@ def plot_housing_results_with_ci(
         # For each step, get mean and std over seeds
         means = []
         stds = []
+        ci95s = []
+        ci99s = []
         for step in steps:
             seed_means = grouped[grouped["step"] == step][loss_attr].values
             means.append(np.mean(seed_means))
+            n = len(seed_means)
             stds.append(np.std(seed_means))
+            sem = np.std(seed_means, ddof=1) / np.sqrt(n) if n > 1 else 0
+            ci95 = sem * t.ppf((1 + 0.95) / 2, n - 1) if n > 1 else 0
+            ci95s.append(ci95)
+            ci99 = sem * t.ppf((1 + 0.99) / 2, n - 1) if n > 1 else 0
+            ci99s.append(ci99)
         means_np = np.array(means)
         stds_np = np.array(stds)
+        ci95s_np = np.array(ci95s)
+        ci99s_np = np.array(ci99s)
         # Save means and stds for each method
         results_df = pd.DataFrame(
             {
                 "step": steps,
                 f"{method}_mean": means_np,
                 f"{method}_std": stds_np,
+                f"{method}_ci95": ci95s_np,
+                f"{method}_ci99": ci99s_np,
                 "method": method,
             }
         )
@@ -160,10 +173,10 @@ def plot_housing_results_with_ci(
         color = METHOD_COLORS[method]
         ax.plot(steps, means, label=method, color=color)
         ax.fill_between(
-            steps, means_np - stds_np, means_np + stds_np, alpha=0.2, color=color
+            steps, means_np - ci95s_np, means_np + ci95s_np, alpha=0.2, color=color
         )
 
-    ymax_plot = 4  # Manual bound for nicer figures
+    ymax_plot = 8  # Manual bound for nicer figures
     ymax = ax.get_ylim()[1]
     if ymax > ymax_plot:
         ax.set_ylim(top=ymax_plot)
@@ -175,12 +188,13 @@ def plot_housing_results_with_ci(
     if log_scale:
         ax.set_yscale("log")
     plt.tick_params(axis="both", which="major", labelsize=16)
+    legend_ncols = 2 if len(methods) >= 4 else 1
     ax.legend(
         fontsize=16,
         frameon=True,
         facecolor="white",
         edgecolor="black",
-        ncols=2,
+        ncols=legend_ncols,
     )
     plt.grid()
     plt.tight_layout()
@@ -209,7 +223,14 @@ def main():
             2.0,
         ],  # Remember to put floats here (1.0,...)
     }
-    df = load_housing_data(param_filters=filters)
+    methods_to_remove = [
+        "OPTIMAL_DL_MSG",
+        "BSR_LOCAL",
+        "BSR_BANDED_LOCAL",
+        "OPTIMAL_LOCAL",
+    ]
+
+    df = load_housing_data(param_filters=filters, methods_to_remove=methods_to_remove)
     assert not df.empty, "Empty dataframe, check you used floats in epsilon"
 
     for epsilon in filters["epsilon"]:
@@ -224,16 +245,12 @@ def main():
                 ), f"Got multiple values for parameter {param}"
 
         # df = df[df["method"] != "LDP"]
-        if epsilon <= 1.0:  # Remove them from the plot as they don't converge.
+        if epsilon < 0.5:  # Remove them from the plot as they don't converge.
             current_df = current_df[current_df["method"] != "ANTIPGD"]
             current_df = current_df[current_df["method"] != "BSR_BANDED_LOCAL"]
 
-        # Remove unused methods from data
-        current_df = current_df[current_df["method"] != "OPTIMAL_DL_MSG"]
-        current_df = current_df[current_df["method"] != "BSR_LOCAL"]
-        # df = df[df["method"] != "OPTIMAL_LOCAL"]
-
         # Rename on plots:
+        current_df = current_df.copy()
         for method_source, method_display_name in METHOD_DISPLAY_NAMES.items():
             current_df["method"] = current_df["method"].replace(
                 method_source, method_display_name
