@@ -188,4 +188,6 @@ def main():
 
 # Example usage:
 if __name__ == "__main__":
+    plt.rcParams["axes.linewidth"] = 2.0  # Axis lines
+    plt.rcParams["grid.linewidth"] = 1.5  # Grid lines
     main()

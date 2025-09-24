@@ -291,6 +291,10 @@ def generate_plots(df, hide_figures: bool = False, only_optimal: bool = False):
     sns.set_theme(style="whitegrid")
     plt.style.use("science")
 
+    # Set global axis and grid line thickness
+    plt.rcParams["axes.linewidth"] = 2.0  # Axis lines
+    plt.rcParams["grid.linewidth"] = 1.5  # Grid lines
+
     # Define a list of markers to cycle through
 
     # Create a mapping from config label to marker to keep it consistent

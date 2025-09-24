@@ -129,6 +129,9 @@ def plot_housing_results_with_ci(
 
     all_results_df = pd.DataFrame({})
 
+    # Store means for each method for later comparison
+    method_means = {}
+
     for method in methods:
         method_df = df[df["method"] == method]
         # Group by step, aggregate over nodes for each seed and iteration
@@ -174,6 +177,26 @@ def plot_housing_results_with_ci(
         ax.plot(steps, means, label=method, color=color)
         ax.fill_between(
             steps, means_np - ci95s_np, means_np + ci95s_np, alpha=0.2, color=color
+        )
+
+        method_means[method] = means_np
+
+    # Print average percentage improvement for last 50 iterations
+    method_a = "DP-D-SGD"
+    method_b = "MAFALDA-SGD (Ours)"
+    if method_a in method_means and method_b in method_means:
+        last_50_idx = -50 if len(steps) >= 50 else 0
+        a_vals = method_means[method_a][last_50_idx:]
+        b_vals = method_means[method_b][last_50_idx:]
+        # Percentage improvement: (a - b) / a * 100
+        perc_improvement = (a_vals - b_vals) / a_vals * 100
+        avg_improvement = np.mean(perc_improvement)
+        print(
+            f"[epsilon ={filename.split("epsilon")[-1]}] Average percentage improvement of '{method_b}' over '{method_a}' for last 50 steps: {avg_improvement:.2f}%"
+        )
+    else:
+        print(
+            f"Methods '{method_a}' and/or '{method_b}' not found in the data for percentage improvement calculation."
         )
 
     ymax_plot = 4  # Manual bound for nicer figures

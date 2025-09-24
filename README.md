@@ -64,6 +64,11 @@ python simulations/housing_plotter.py
 > Figures will be under `figures/housing/`.
 `epsilon` in their description is somewhat poorly named, and corresponds to $\frac{1}{\sigma}$.
 
+The privacy-utility tradeoffs are displayed using:
+```bash
+python simulations/housing_plotter_multigraph.py
+```
+
 Run `simulations/epsilon_computation.py` to have the corresponding $\varepsilon$ used in the paper.
 
 ### 3. Optimal Workload Experiments
