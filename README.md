@@ -20,7 +20,10 @@ Matrix Factorization for Decentralized Learning (MFDL) is a Python package for s
     ```
 
 ## Usage
-By default, all workload matrices are cached in the `cache/` directory to save computation time. Pre-computed matrices are included with this submission. To regenerate workloads from scratch, delete the `cache/` directory and rerun the experiments.
+By default, all workload matrices are cached in the `cache/` directory to save computation time. Pre-computed matrices are included with this submission.
+This allows to skip expensive steps, especially for housing and large graphs.
+To regenerate all workloads from scratch, delete the `cache/` directory and rerun the experiments.
+Be warned this may take time and can be expensive in terms of memory.
 
 
 ### 1. Accounting Experiments
@@ -31,10 +34,10 @@ python simulations/muffliato_accounting.py
 ```
 
 ### 2. Housing Experiments
-Note this is the most expensive computation here!
+Note this is the most expensive and longest computation here!
 Step 1 should require around 200GB of RAM (creating the workloads for peertube and ego is expensive, even if we optimize it to the maximum by caching repetitive parts), and step 2 requires simulating decentralized learning in multiple settings, which may take time. 
-It is recommended to 
-For the paper, we used a 256 cores machine with 512GB of RAM.
+It is recommended to follow the order described below.
+For the paper, we used a 256 cores machine with 512GB of RAM, and required around 10 hours to perform all graphs.
 
 
 **Step 1: Pre-cache optimal correlations**
@@ -46,7 +49,7 @@ Run for each graph (`florentine`, `ego`, `peertube`):
 Cached workloads will be stored under `cache/`.
 
 **Step 2: Run simulations**
-
+This steps is the longest, and may take a few hours depending on how many thread you use.
 Set environment variables for optimal parallelism:
 ```bash
 export OMP_NUM_THREADS=1
@@ -90,6 +93,7 @@ Resulting figures are stored under `figures/factorization_simulation/`.
 
 - If you encounter issues with parallelism or performance, ensure the environment variables above are set before running simulations.
 - For missing datasets, verify the correct file paths and download locations.
+- You may need to create empty directories `results/` or `figures/`.
 
 ## License
 

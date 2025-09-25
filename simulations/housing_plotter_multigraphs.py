@@ -19,6 +19,7 @@ def plot_final_test_loss_vs_epsilon(df, filters, graph_name):
     epsilons = []
     unnoised_baseline_mean = None
     unnoised_baseline_ci = None
+    baseline_points = []
     ylim_max = 4
     ylim_min = 5e-1
 
@@ -57,16 +58,12 @@ def plot_final_test_loss_vs_epsilon(df, filters, graph_name):
                     if unnoised_baseline_mean is None:
                         unnoised_baseline_mean = mean_loss
                         unnoised_baseline_ci = ci
-                    # else:
-                    #     assert np.isclose(
-                    #         mean_loss, unnoised_baseline_mean
-                    #     ), f"{mean_loss} vs {unnoised_baseline_mean}"
+                    baseline_points.append((epsilon, mean_loss))
                 else:
                     means.append((epsilon, method, mean_loss))
                     cis.append((epsilon, method, ci))
                     epsilons.append(epsilon)
 
-    # Plot for each method except Unnoised baseline
     ordered_methods = [m for m in METHOD_COLORS if m in set([m for _, m, _ in means])]
     for method in ordered_methods:
         if method == "Unnoised baseline":
@@ -95,6 +92,8 @@ def plot_final_test_loss_vs_epsilon(df, filters, graph_name):
             marker="o",
             capsize=4,
         )
+        # Print method and points
+        print(f"{method}: {list(zip(epsilons_plot, method_means))}")
 
     # plt.yscale("log")
     plt.xscale("log")
@@ -118,6 +117,8 @@ def plot_final_test_loss_vs_epsilon(df, filters, graph_name):
                 color=color,
                 alpha=0.2,
             )
+        # Print baseline points
+        print(f"Unnoised baseline: {baseline_points}")
 
     plt.xlabel("$\\epsilon$", fontsize=24)
     plt.ylabel("Final Test Loss", fontsize=24)
