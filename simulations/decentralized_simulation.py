@@ -44,6 +44,10 @@ class HousingMLP(nn.Module):
         return self.net(x)
 
 
+def housing_model_initializer(seed=421):
+    return GradSampleModule(HousingMLP(8, seed=seed))
+
+
 def learning_step(
     models: list,
     nb_micro_batches_per_step: int,
@@ -113,18 +117,19 @@ def run_decentralized_training(
     micro_batches_per_step: int,
     trainloaders: list[data.DataLoader],
     testloader: data.DataLoader,
-    input_dim: int,
+    model_initializer,
     lr: float = 1e-1,
     device: torch.device = torch.device("cpu"),
+    seed: int = 421,
 ):
     nb_resets = 0
     num_nodes = graph.number_of_nodes()
     # Ensure all models start from the same initial weights by seeding before each model creation
     models = []
     for _ in range(num_nodes):
-        torch.manual_seed(421)
-        np.random.seed(421)
-        model = GradSampleModule(HousingMLP(input_dim)).to(device)
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        model = model_initializer(seed).to(device)
         models.append(model)
     participations_intervals = [
         len(trainloader) // micro_batches_per_step for trainloader in trainloaders
@@ -274,7 +279,7 @@ def run_simulation(
     num_steps,
     micro_batches_per_step,
     epsilon: float,
-    input_dim,
+    model_initializer,
     device_name: str,
     nb_micro_batches,
     dataloader_seed,
@@ -306,9 +311,10 @@ def run_simulation(
         micro_batches_per_step=micro_batches_per_step,
         trainloaders=trainloaders,
         testloader=testloader,
-        input_dim=input_dim,
+        model_initializer=model_initializer,
         lr=lr,
         device=device,
+        seed=dataloader_seed,
     )
     elapsed_time = time.time() - start_time
     print(f"{name}: Training took {elapsed_time:.2f} seconds.")
@@ -322,6 +328,7 @@ def run_experiment(
     graph_name: GraphName = "expander",
     epsilon: float = 1.0,
     num_repetition=5,
+    dataset_name="housing",
     seed=421,
     lr=1e-1,
     nb_big_batches=16,
@@ -341,9 +348,22 @@ def run_experiment(
     micro_batches_per_epoch = nb_big_batches * micro_batches_per_step
     micro_batches_size = 16512 // (nb_nodes * micro_batches_per_epoch)
 
-    input_dim = 8  # California housing dataset
+    match dataset_name:
+        case "housing":
+            trainloaders, _ = load_housing(
+                nb_nodes,
+                train_batch_size=micro_batches_size,
+                seed=seed,
+            )
+            model_initializer = housing_model_initializer
+        case "femnist":
+            trainloaders, _ = load_femnist(
+                total_nodes=nb_nodes, train_batch_size=micro_batches_size, seed=seed
+            )
+            model_initializer = femnist_model_initializer
+        case _:
+            raise ValueError(f"Unexpected dataset name {dataset_name}")
 
-    trainloaders, _ = load_housing(nb_nodes, train_batch_size=micro_batches_size)
     nb_micro_batches_list = [len(loader) for loader in trainloaders]
     print(nb_micro_batches_list)
     assert np.all(np.array(nb_micro_batches_list) == np.min(nb_micro_batches_list))
@@ -367,6 +387,7 @@ def run_experiment(
         f"steps{num_steps}_"  # Should be redundant
     )
     details = (
+        f"Dataset: {dataset_name} | "
         f"Graph: {graph_name} | "
         f"Nb nodes: {nb_nodes} | "
         f"Micro-batches per step: {micro_batches_per_step} | "
@@ -374,7 +395,7 @@ def run_experiment(
         f"Micro-batch size: {micro_batches_size} | "
         f"Num_repetitions: {num_repetition}"
     )
-    csv_path = f"results/housing/simulation_{current_experiment_properties}.csv"
+    csv_path = f"results/{dataset_name}/simulation_{current_experiment_properties}.csv"
 
     # Check if results already exist and skip if not recomputing
     if (not recompute) and os.path.exists(csv_path):
@@ -501,7 +522,7 @@ def run_experiment(
         "num_steps": num_steps,
         "micro_batches_per_step": micro_batches_per_step,
         "epsilon": epsilon,
-        "input_dim": input_dim,
+        "model_initializer": model_initializer,
         "device_name": device_name,
         "nb_micro_batches": nb_micro_batches_val,
         "dataloader_seed": seed,
@@ -550,7 +571,6 @@ def run_experiment(
     df["micro_batches_per_step"] = micro_batches_per_step
     df["nb_micro_batches"] = nb_micro_batches_val
     df["nb_big_batches"] = nb_big_batches
-    df["input_dim"] = input_dim
     df["device"] = device_name
     df["dataloader_seed"] = run_sim_args["dataloader_seed"]
     df["lr"] = run_sim_args["lr"]
@@ -618,6 +638,12 @@ def main():
         default=False,
         help="Only compute the necessary matrix factorizations, and make sure they are in the cache for later simulations.",
     )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="housing",
+        help="Dataset name. Should be `housing` or `femnist`",
+    )
 
     args = parser.parse_args()
 
@@ -633,12 +659,9 @@ def main():
         debug=args.debug,
         recompute=args.recompute,
         pre_cache=args.pre_cache,
+        dataset_name=args.dataset,
     )
 
 
 if __name__ == "__main__":
-    torch.manual_seed(421)
-    np.random.seed(421)
-    # random.seed(421)
-
     main()
