@@ -10,6 +10,7 @@ class MFDLSGD(Optimizer):
         params,
         C,  # Correlation matrix, such that A = BC.
         participation_interval,
+        noise_seed,
         C_sens=None,
         id=0,
         lr=1e-3,
@@ -61,21 +62,37 @@ class MFDLSGD(Optimizer):
             if p.requires_grad
         )
 
-        # Generate all the independent noises for each trainable parameter at the beginning.
-        # TODO: optimize this in terms of memory, but you'd need a banded assumption or something along those line.
+        for group in self.param_groups:
+            group["accum_grads"] = [
+                (
+                    torch.zeros_like(param.data, device=self.device)
+                    if param.requires_grad
+                    else None
+                )
+                for param in group["params"]
+            ]
 
+        self.noise_seed = noise_seed
         self.noise_std = (
             self.l2_norm_clip * self.C_sens * self.noise_multiplier / self.batch_size
         )  # TODO: Check the value for the noise variance
+        if self.id == 0:
+            print(f"Noise std: {self.noise_std}")
+        self.initialize_noises()
+
+    def initialize_noises(self):
+        # Generate all the independent noises for each trainable parameter at the beginning.
+        # TODO: optimize this in terms of memory, but you'd need a banded assumption or something along those line.
+        g = torch.Generator(device=self.device)
+        g.manual_seed(self.noise_seed)
 
         self.noises = torch.normal(
             0,
             std=self.noise_std,
             size=(self.Cinv.shape[-1], self.num_trainable_params),
-            device=device,
+            device=self.device,
+            generator=g,
         )
-        if self.id == 0:
-            print(f"Noise std: {self.noise_std}")
 
         param_dtype = next(
             p.dtype
@@ -90,16 +107,6 @@ class MFDLSGD(Optimizer):
         )  # the actual correlated noises to add
         self.noises = new_noises
         self.noise_index = 0
-
-        for group in self.param_groups:
-            group["accum_grads"] = [
-                (
-                    torch.zeros_like(param.data, device=device)
-                    if param.requires_grad
-                    else None
-                )
-                for param in group["params"]
-            ]
 
     def generate_noise(self):
         """Add noise"""
@@ -189,3 +196,58 @@ class MFDLSGD(Optimizer):
                     group["accum_grads"][ind].zero_()
         assert noises_used == self.num_trainable_params  # Ensure we used ALL the noises
         return None
+
+
+class MFDLSGD_Lazy(MFDLSGD):
+    def initialize_noises(self):
+        self.param_dtype = next(
+            p.dtype
+            for group in self.param_groups
+            for p in group["params"]
+            if p.requires_grad
+        )
+        self.Cinv = self.Cinv.to(self.param_dtype)
+        self.noise_index = 0
+        self.num_groups = len(self.param_groups)
+        self.group_sizes = [
+            sum(p.numel() for p in group["params"] if p.requires_grad)
+            for group in self.param_groups
+        ]
+        print(self.group_sizes)
+
+    def generate_noise(self):
+        noises_per_group = []
+        batch_size = 1024  # You can adjust this batch size for memory efficiency
+
+        g = torch.Generator(device=self.device)
+        g.manual_seed(self.noise_seed)
+        # As long as we always iterate in the same order, we will get  the same initial noise generation.
+        for i, group in enumerate(self.param_groups):
+
+            group_size = self.group_sizes[i]
+            num_batches = (group_size + batch_size - 1) // batch_size
+
+            group_noises = []
+            for b in range(num_batches):
+                start = b * batch_size
+                end = min((b + 1) * batch_size, group_size)
+                current_batch_size = end - start
+
+                noises = torch.normal(
+                    0,
+                    std=self.noise_std,
+                    size=(self.Cinv.shape[-1], current_batch_size),
+                    device=self.device,
+                    generator=g,
+                )
+
+                noises = noises.to(self.param_dtype)
+                noises = torch.matmul(self.Cinv, noises)
+                group_noises.append(noises[self.noise_index])
+
+            # Concatenate all batch noises for this group
+            group_noises = torch.cat(group_noises)
+            noises_per_group.append(group_noises)
+        self.noise_index += 1
+        generated_noises = torch.cat(noises_per_group)
+        return generated_noises

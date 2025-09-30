@@ -5,7 +5,6 @@ import multiprocessing
 import os
 import time
 import warnings
-from typing import Any, Callable, Dict
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -17,12 +16,11 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data as data
 import workloads_generator
-from mfdl_optimizer import MFDLSGD
+from femnist import femnist_model_initializer, load_femnist
+from housing import housing_model_initializer, load_housing
+from mfdl_optimizer import MFDLSGD, MFDLSGD_Lazy
 from opacus import GradSampleModule
-from sklearn.datasets import fetch_california_housing
 from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 from utils import GraphName, get_communication_matrix, get_graph
 from workloads_generator import compute_sensitivity
 
@@ -33,23 +31,43 @@ warnings.filterwarnings(
 )
 
 
-# Simple MLP for regression
-class HousingMLP(nn.Module):
-    def __init__(self, input_dim, seed=421):
-        super().__init__()
-        torch.manual_seed(seed)
-        self.net = nn.Sequential(nn.Linear(input_dim, 64), nn.ReLU(), nn.Linear(64, 1))
+def get_nb_elements(dataset_name, test_train_fraction):
+    match dataset_name:
+        case "housing":
+            return int(np.ceil(20640 * test_train_fraction))
+        case "femnist":
+            return 697932
+        case _:
+            raise ValueError(f"Unknown dataset {dataset_name}")
 
-    def forward(self, x):
-        return self.net(x)
 
-
-def housing_model_initializer(seed=421):
-    return GradSampleModule(HousingMLP(8, seed=seed))
+def get_datasets_and_model_initializer(
+    dataset_name, seed, nb_nodes, micro_batches_size
+):
+    match dataset_name:
+        case "housing":
+            trainloaders, testloader = load_housing(
+                nb_nodes,
+                test_fraction=0.2,
+                train_batch_size=micro_batches_size,
+                seed=seed,
+            )
+            model_initializer = housing_model_initializer
+            loss_function = nn.MSELoss()
+        case "femnist":
+            trainloaders, testloader = load_femnist(
+                total_nodes=nb_nodes, train_batch_size=micro_batches_size, seed=seed
+            )
+            model_initializer = femnist_model_initializer
+            loss_function = nn.CrossEntropyLoss()
+        case _:
+            raise ValueError(f"Unexpected dataset name {dataset_name}")
+    return trainloaders, testloader, model_initializer, loss_function
 
 
 def learning_step(
     models: list,
+    loss_function,
     nb_micro_batches_per_step: int,
     optimizers: list,
     data_iters: list,
@@ -59,6 +77,7 @@ def learning_step(
     nb_resets = 0
     # Local update
     for node, model in enumerate(models):
+        print(f"Node {node}")
         optimizer: MFDLSGD = optimizers[node]
         for _ in range(nb_micro_batches_per_step):
             try:
@@ -74,16 +93,21 @@ def learning_step(
             optimizer.zero_microbatch_grad()
             pred = model(x)
 
-            # Cast into 1D tensor even when the batch is of size 0.
-            pred = pred.view(-1)
-            loss = nn.functional.mse_loss(pred, y.view(-1))
-
+            # For regression, ensure pred and y are 1D
+            if isinstance(loss_function, nn.MSELoss):
+                pred = pred.squeeze()
+                y = y.squeeze()
+            loss = loss_function(pred, y)
             loss.backward()
             optimizer.microbatch_step()
+            del loss, pred, x, y
+            torch.cuda.empty_cache()
         optimizer.step()
+        optimizer.zero_grad()
     return nb_resets
 
 
+@torch.no_grad()
 def average_step(graph, models):
     """
     Runs a step of gossip averaging along graph on models
@@ -113,11 +137,12 @@ def run_decentralized_training(
     graph: nx.Graph,
     num_steps: int,
     C: np.ndarray,
-    epsilon: float,
+    mu: float,
     micro_batches_per_step: int,
     trainloaders: list[data.DataLoader],
     testloader: data.DataLoader,
     model_initializer,
+    loss_function,
     lr: float = 1e-1,
     device: torch.device = torch.device("cpu"),
     seed: int = 421,
@@ -129,7 +154,7 @@ def run_decentralized_training(
     for _ in range(num_nodes):
         torch.manual_seed(seed)
         np.random.seed(seed)
-        model = model_initializer(seed).to(device)
+        model = GradSampleModule(model_initializer(seed)).to(device)
         models.append(model)
     participations_intervals = [
         len(trainloader) // micro_batches_per_step for trainloader in trainloaders
@@ -140,14 +165,15 @@ def run_decentralized_training(
         batch_size = trainloaders[i].batch_size
         assert batch_size is not None, "Batch size should not be None"
         optimizers.append(
-            MFDLSGD(
+            MFDLSGD_Lazy(
                 models[i].parameters(),
                 C=C,
                 participation_interval=participations_intervals[i],
+                noise_seed=seed,
                 lr=lr,
                 device=device,
                 id=i,
-                noise_multiplier=1 / epsilon,
+                noise_multiplier=1 / mu,
                 batch_size=batch_size * micro_batches_per_step,
             )
         )
@@ -160,6 +186,7 @@ def run_decentralized_training(
         print(f"Step {step + 1:>{len(str(num_steps))}}/{num_steps}", end="\r")
         nb_resets += learning_step(
             models,
+            loss_function=loss_function,
             nb_micro_batches_per_step=micro_batches_per_step,
             optimizers=optimizers,
             data_iters=data_iters,
@@ -167,15 +194,15 @@ def run_decentralized_training(
             device=device,
         )
         average_step(graph, models)
-        step_test_losses = evaluate_models(models, testloader, device)
         step_train_losses = [
-            evaluate_models([model], trainloaders[node], device)[0]
+            evaluate_models([model], trainloaders[node], device, loss_function)[0]
             for node, model in enumerate(models)
         ]
-        for node_id, loss in enumerate(step_test_losses):
-            test_losses[node_id].append(loss)
         for node_id, loss in enumerate(step_train_losses):
             train_losses[node_id].append(loss)
+        step_test_losses = evaluate_models(models, testloader, device, loss_function)
+        for node_id, loss in enumerate(step_test_losses):
+            test_losses[node_id].append(loss)
 
     # Losses of shape [nb_steps, nb_nodes]. Time is the 1st axis, nodes the second.
     res_test_losses = np.array(test_losses).T
@@ -184,102 +211,36 @@ def run_decentralized_training(
     return models, res_test_losses, res_train_losses
 
 
-def split_data(
-    X, y, total_nodes: int, batch_size, generator: torch.Generator
-) -> list[data.DataLoader]:
-    idx = torch.arange(len(X))
-
-    dataloaders = []
-    for node_id in range(total_nodes):
-        # Simple partition: split by node_id
-        node_idx = idx[node_id::total_nodes]
-        ds = data.TensorDataset(X[node_idx], y[node_idx])
-        dataloaders.append(
-            data.DataLoader(
-                ds,
-                batch_size=batch_size,
-                shuffle=True,
-                generator=generator,
-            )
-        )
-    # Ensure all dataloaders have the same number of batches
-    min_len = min(len(dl) for dl in dataloaders)
-    for i, dl in enumerate(dataloaders):
-        if len(dl) > min_len:
-            # Remove extra data so that this dataloader has min_len batches
-            ds = dl.dataset
-            batch_size = dl.batch_size
-            keep_n = min_len * batch_size
-            dataloaders[i] = data.DataLoader(
-                data.TensorDataset(ds.tensors[0][:keep_n], ds.tensors[1][:keep_n]),
-                batch_size=batch_size,
-                shuffle=True,
-                generator=generator,
-                # pin_memory=True,
-                # num_workers=4,
-            )
-    return dataloaders
-
-
-def load_housing(
-    total_nodes, test_fraction=0.2, train_batch_size=32, test_batch_size=4096, seed=421
-):
-    g = torch.Generator()
-    g.manual_seed(seed)
-    dataset = fetch_california_housing()  # 20,640 samples
-    X = torch.tensor(StandardScaler().fit_transform(dataset.data), dtype=torch.float32)
-    y = torch.tensor(dataset.target, dtype=torch.float32)
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_fraction, random_state=seed
-    )
-    train_dataloaders = split_data(
-        X=X_train,
-        y=y_train,
-        total_nodes=total_nodes,
-        batch_size=train_batch_size,
-        generator=g,
-    )
-
-    test_dataloader = data.DataLoader(
-        data.TensorDataset(X_test, y_test),
-        batch_size=test_batch_size,
-        shuffle=True,
-        generator=g,
-        # pin_memory=True,
-        # num_workers=4,
-    )
-
-    return train_dataloaders, test_dataloader
-
-
-def evaluate_models(models: list, dataloader, device):
-    mse_list = []
-    n = len(models)
-    with torch.no_grad():
-        for node_id, model in enumerate(models):
-            model.eval()
-            preds, targets = [], []
-            for x, y in dataloader:
-                x, y = x.to(device), y.to(device)
-                output = model(x).squeeze()
-                preds.append(output.cpu())
-                targets.append(y.cpu())
-            preds = torch.cat(preds).numpy()
-            targets = torch.cat(targets).numpy()
-            mse = mean_squared_error(targets, preds)
-            mse_list.append(mse)
-            model.train()
-    return mse_list
+@torch.no_grad()
+def evaluate_models(models: list, dataloader, device, loss_function):
+    avg_loss_list = []
+    for node_id, model in enumerate(models):
+        # print(f"Evaluating {node_id}")
+        model.eval()
+        total_loss = 0.0
+        total_samples = 0
+        for x, y in dataloader:
+            x, y = x.to(device), y.to(device)
+            output = model(x)
+            if isinstance(loss_function, nn.MSELoss):
+                output = output.squeeze()
+            batch_size = x.size(0)
+            loss = loss_function(output, y)
+            total_loss += loss.item() * batch_size
+            total_samples += batch_size
+        avg_loss = total_loss / total_samples if total_samples > 0 else float("nan")
+        avg_loss_list.append(avg_loss)
+        model.train()
+    return avg_loss_list
 
 
 def run_simulation(
-    args,
+    args,  # Tuple (name, C) for the processpoolexecutor map
     G: nx.Graph,
     num_steps,
     micro_batches_per_step,
-    epsilon: float,
-    model_initializer,
+    mu: float,
+    dataset_name,
     device_name: str,
     nb_micro_batches,
     dataloader_seed,
@@ -290,8 +251,13 @@ def run_simulation(
     torch.manual_seed(dataloader_seed)
     device = torch.device(device_name)
     n = G.number_of_nodes()
-    trainloaders, testloader = load_housing(
-        n, train_batch_size=micro_batches_size, seed=dataloader_seed
+    trainloaders, testloader, model_initializer, loss_function = (
+        get_datasets_and_model_initializer(
+            dataset_name,
+            seed=dataloader_seed,
+            nb_nodes=n,
+            micro_batches_size=micro_batches_size,
+        )
     )
     name, C = args
     print(f"Running simulation for {name} (PID: {os.getpid()})")
@@ -307,11 +273,12 @@ def run_simulation(
         G,
         num_steps=num_steps,
         C=C,
-        epsilon=epsilon,
+        mu=mu,
         micro_batches_per_step=micro_batches_per_step,
         trainloaders=trainloaders,
         testloader=testloader,
         model_initializer=model_initializer,
+        loss_function=loss_function,
         lr=lr,
         device=device,
         seed=dataloader_seed,
@@ -326,7 +293,7 @@ def run_experiment(
     use_optimals=False,
     nb_nodes=10,
     graph_name: GraphName = "expander",
-    epsilon: float = 1.0,
+    mu: float = 1.0,
     num_repetition=5,
     dataset_name="housing",
     seed=421,
@@ -344,27 +311,17 @@ def run_experiment(
     communication_matrix = get_communication_matrix(G)
 
     # 20,640 total samples, 20,640 * 0.8 = 16,512 train samples
+    nb_data = get_nb_elements(dataset_name=dataset_name, test_train_fraction=0.8)
     micro_batches_per_step = 1
     micro_batches_per_epoch = nb_big_batches * micro_batches_per_step
-    micro_batches_size = 16512 // (nb_nodes * micro_batches_per_epoch)
+    micro_batches_size = nb_data // (nb_nodes * micro_batches_per_epoch)
 
-    match dataset_name:
-        case "housing":
-            trainloaders, _ = load_housing(
-                nb_nodes,
-                train_batch_size=micro_batches_size,
-                seed=seed,
-            )
-            model_initializer = housing_model_initializer
-        case "femnist":
-            trainloaders, _ = load_femnist(
-                total_nodes=nb_nodes, train_batch_size=micro_batches_size, seed=seed
-            )
-            model_initializer = femnist_model_initializer
-        case _:
-            raise ValueError(f"Unexpected dataset name {dataset_name}")
+    trainloaders, _, _, _ = get_datasets_and_model_initializer(
+        dataset_name, seed, nb_nodes, micro_batches_size
+    )
 
     nb_micro_batches_list = [len(loader) for loader in trainloaders]
+    del trainloaders  # Memory optimization
     print(nb_micro_batches_list)
     assert np.all(np.array(nb_micro_batches_list) == np.min(nb_micro_batches_list))
     nb_micro_batches_val = np.min(nb_micro_batches_list)
@@ -377,7 +334,7 @@ def run_experiment(
     current_experiment_properties = (
         f"graph{graph_name}_"
         f"nodes{nb_nodes}_"
-        f"eps{epsilon}_"
+        f"mu{mu}_"
         f"reps{num_repetition}_"
         f"nbbatches{nb_big_batches}_"
         f"mbps{micro_batches_per_step}_"
@@ -521,8 +478,8 @@ def run_experiment(
         "G": G,
         "num_steps": num_steps,
         "micro_batches_per_step": micro_batches_per_step,
-        "epsilon": epsilon,
-        "model_initializer": model_initializer,
+        "mu": mu,
+        "dataset_name": dataset_name,
         "device_name": device_name,
         "nb_micro_batches": nb_micro_batches_val,
         "dataloader_seed": seed,
@@ -531,7 +488,7 @@ def run_experiment(
     }
     run_simulation_partial = functools.partial(run_simulation, **run_sim_args)
 
-    if debug:
+    if True:
         results = []
         for config in configs:
             results.append(run_simulation_partial(config))
@@ -574,9 +531,8 @@ def run_experiment(
     df["device"] = device_name
     df["dataloader_seed"] = run_sim_args["dataloader_seed"]
     df["lr"] = run_sim_args["lr"]
-    df["test_batch_size"] = 4096  # hardcoded in load_housing
-    df["test_fraction"] = 0.2  # hardcoded in load_housing
-    df["epsilon"] = epsilon
+    df["mu"] = mu
+    df["dataset_name"] = dataset_name
 
     # Save to CSV
     if not debug:
@@ -597,7 +553,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run housing simulation experiment.")
     parser.add_argument("--nb_nodes", type=int, default=10, help="Number of nodes")
     parser.add_argument("--graph_name", type=str, default="expander", help="Graph name")
-    parser.add_argument("--epsilon", type=float, default=1.0, help="Privacy budget")
+    parser.add_argument("--mu", type=float, default=1.0, help="Privacy budget")
     parser.add_argument(
         "--num_repetition",
         type=int,
@@ -652,7 +608,7 @@ def main():
         nb_nodes=args.nb_nodes,
         graph_name=args.graph_name,
         num_repetition=args.num_repetition,
-        epsilon=args.epsilon,
+        mu=args.mu,
         seed=args.dataloader_seed,
         lr=args.lr,
         nb_big_batches=args.nb_batches,

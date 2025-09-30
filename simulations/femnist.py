@@ -2,9 +2,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.utils.data as data
+from data_utils import split_data
 from torchvision import datasets, transforms
-
-from simulations.decentralized_simulation import run_decentralized_training, split_data
 
 
 # Simple CNN for FEMNIST (28x28 grayscale images, 62 classes)
@@ -27,6 +26,10 @@ class FEMNISTCNN(nn.Module):
 
     def forward(self, x):
         return self.net(x)
+
+
+def femnist_model_initializer(seed=421):
+    return FEMNISTCNN(seed)
 
 
 def dirichlet_partition(X, y, total_nodes, alpha=0.5, batch_size=32, generator=None):
@@ -152,20 +155,38 @@ def main():
         f"Test set: {len(test_dataloader.dataset)} samples, {len(test_dataloader)} batches"
     )
 
+    total_train_samples = sum(len(dl.dataset) for dl in train_dataloaders)
+    print(f"Total train samples: {total_train_samples}")
+
     # Instantiate model and print summary
     model = FEMNISTCNN(seed=seed)
     print(model)
+    num_params = sum(p.numel() for p in model.parameters())
+    print(f"Number of parameters: {num_params}")
 
-    run_decentralized_training(
-        graph,
-        num_steps,
-        C,
-        epsilon,
-        micro_batches_per_step,
-        trainloaders,
-        testloader,
-        input_dim,
+    # Use Dirichlet partitioner instead of default split_data
+    X_train = train_dataloaders[0].dataset.tensors[0].new_empty(0)
+    y_train = train_dataloaders[0].dataset.tensors[1].new_empty(0, dtype=torch.long)
+    for dl in train_dataloaders:
+        X_train = torch.cat([X_train, dl.dataset.tensors[0]], dim=0)
+        y_train = torch.cat([y_train, dl.dataset.tensors[1]], dim=0)
+
+    dirichlet_dataloaders = dirichlet_partition(
+        X=X_train,
+        y=y_train,
+        total_nodes=total_nodes,
+        alpha=0.5,
+        batch_size=train_batch_size,
+        generator=torch.Generator().manual_seed(seed),
     )
+
+    print("\n[Dirichlet Partition]")
+    for i, dl in enumerate(dirichlet_dataloaders):
+        print(f"Node {i}: {len(dl.dataset)} samples, {len(dl)} batches")
+        labels = dl.dataset.tensors[1].numpy()
+        unique, counts = np.unique(labels, return_counts=True)
+        class_counts = dict(zip(unique, counts))
+        print(f"  Class distribution: {class_counts}")
 
 
 if __name__ == "__main__":
