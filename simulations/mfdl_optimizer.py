@@ -213,7 +213,7 @@ class MFDLSGD_Lazy(MFDLSGD):
             sum(p.numel() for p in group["params"] if p.requires_grad)
             for group in self.param_groups
         ]
-        print(self.group_sizes)
+        # print(self.group_sizes)
 
     def generate_noise(self):
         noises_per_group = []

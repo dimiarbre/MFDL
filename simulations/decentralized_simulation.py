@@ -77,7 +77,7 @@ def learning_step(
     nb_resets = 0
     # Local update
     for node, model in enumerate(models):
-        print(f"Node {node}")
+        # print(f"Node {node}")
         optimizer: MFDLSGD = optimizers[node]
         for _ in range(nb_micro_batches_per_step):
             try:
@@ -165,7 +165,7 @@ def run_decentralized_training(
         batch_size = trainloaders[i].batch_size
         assert batch_size is not None, "Batch size should not be None"
         optimizers.append(
-            MFDLSGD_Lazy(
+            MFDLSGD(
                 models[i].parameters(),
                 C=C,
                 participation_interval=participations_intervals[i],

@@ -82,6 +82,22 @@ def expander_graph(n, d, seed):
     return G
 
 
+def get_erdos_renyi_graph(n, p, seed, total_nb_tries=1000):
+    # Be careful to not use the cache if you use this function directly /change the total_nb_tries, as this is not accounted for in the caching scheme for erdos graphs. Consider using get_graph instead.
+    connex = False
+    nb_tries = 0
+    G = nx.empty_graph(n)
+    while not connex and nb_tries < total_nb_tries:
+        G = nx.erdos_renyi_graph(
+            n, p, seed=total_nb_tries * seed + nb_tries
+        )  # Have to expand so that seeds don't colide.
+        connex = nx.is_connected(G)
+        nb_tries += 1
+    if nb_tries >= total_nb_tries:
+        raise ValueError("Required too long to generate a fully-connected Erdos graph")
+    return G
+
+
 def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
     G: nx.Graph
     assert n >= 0, f"Should not make graph with {n} nodes"
@@ -112,19 +128,7 @@ def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
         case "complete":
             G = nx.complete_graph(n)
         case "erdos":
-            connex = False
-            nb_tries = 0
-            G = nx.empty_graph(n)
-            while not connex and nb_tries < 1000:
-                G = nx.erdos_renyi_graph(
-                    n, np.log(n) / n, seed=1000 * seed + nb_tries
-                )  # Have to expand so that seeds don't colide.
-                connex = nx.is_connected(G)
-                nb_tries += 1
-            if nb_tries >= 1000:
-                raise ValueError(
-                    "Required too long to generate a fully-connected Erdos graph"
-                )
+            G = get_erdos_renyi_graph(n, np.log(n) / n, seed)
         case "grid":
             if int(np.sqrt(n)) ** 2 != n:
                 raise ValueError(
