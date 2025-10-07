@@ -28,8 +28,29 @@ class FEMNISTCNN(nn.Module):
         return self.net(x)
 
 
+class FEMNIST_tiny_CNN(nn.Module):
+    def __init__(self, seed=421):
+        super().__init__()
+        torch.manual_seed(seed)
+        self.net = nn.Sequential(
+            nn.Conv2d(1, 8, kernel_size=3, padding=1),  # 28x28 -> 28x28
+            nn.ReLU(),
+            nn.MaxPool2d(2),  # 28x28 -> 14x14
+            nn.Conv2d(8, 16, kernel_size=3, padding=1),  # 14x14 -> 14x14
+            nn.ReLU(),
+            nn.MaxPool2d(2),  # 14x14 -> 7x7
+            nn.Flatten(),
+            nn.Linear(16 * 7 * 7, 64),
+            nn.ReLU(),
+            nn.Linear(64, 62),  # FEMNIST: 62 classes
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
 def femnist_model_initializer(seed=421):
-    return FEMNISTCNN(seed)
+    return FEMNIST_tiny_CNN(seed=seed)
 
 
 def dirichlet_partition(X, y, total_nodes, alpha=0.5, batch_size=32, generator=None):
@@ -159,10 +180,69 @@ def main():
     print(f"Total train samples: {total_train_samples}")
 
     # Instantiate model and print summary
-    model = FEMNISTCNN(seed=seed)
+    model = femnist_model_initializer(seed=seed)
     print(model)
     num_params = sum(p.numel() for p in model.parameters())
-    print(f"Number of parameters: {num_params}")
+    lr = 0.2
+    print(f"Number of parameters: {num_params}. LR: {lr}")
+
+    import matplotlib.pyplot as plt
+
+    # Quick training loop
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+
+    epochs = 10
+    train_losses = []
+    for epoch in range(epochs):
+        model.train()
+        running_loss = 0.0
+        total = 0
+        correct = 0
+        for dl in train_dataloaders:
+            for X, y in dl:
+                X, y = X.to(device), y.to(device)
+                optimizer.zero_grad()
+                outputs = model(X)
+                loss = criterion(outputs, y)
+                loss.backward()
+                optimizer.step()
+                running_loss += loss.item() * X.size(0)
+                _, preds = outputs.max(1)
+                correct += (preds == y).sum().item()
+                total += y.size(0)
+        avg_loss = running_loss / total
+        acc = correct / total
+        train_losses.append(avg_loss)
+        print(f"Epoch {epoch+1}/{epochs} - Loss: {avg_loss:.4f} - Acc: {acc:.4f}")
+
+    # Plot training loss
+    plt.figure()
+    plt.plot(range(1, epochs + 1), train_losses, marker="o")
+    plt.xlabel("Epoch")
+    plt.ylabel("Training Loss")
+    plt.title("FEMNIST Training Loss")
+    plt.show()
+
+    # Evaluate on test set
+    model.eval()
+    test_loss = 0.0
+    test_total = 0
+    test_correct = 0
+    with torch.no_grad():
+        for X, y in test_dataloader:
+            X, y = X.to(device), y.to(device)
+            outputs = model(X)
+            loss = criterion(outputs, y)
+            test_loss += loss.item() * X.size(0)
+            _, preds = outputs.max(1)
+            test_correct += (preds == y).sum().item()
+            test_total += y.size(0)
+    avg_test_loss = test_loss / test_total
+    test_acc = test_correct / test_total
+    print(f"Test Loss: {avg_test_loss:.4f} - Test Acc: {test_acc:.4f}")
 
     # Use Dirichlet partitioner instead of default split_data
     X_train = train_dataloaders[0].dataset.tensors[0].new_empty(0)
