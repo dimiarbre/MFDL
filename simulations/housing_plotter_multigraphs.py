@@ -11,7 +11,7 @@ from plotters import plot_housing_results
 from utils import METHOD_COLORS, METHOD_DISPLAY_NAMES
 
 
-def plot_final_test_loss_vs_epsilon(df, filters, graph_name):
+def plot_final_test_loss_vs_epsilon(df, filters, graph_name, dataset_name):
     plt.figure(figsize=(8, 5))
 
     means = []
@@ -131,15 +131,14 @@ def plot_final_test_loss_vs_epsilon(df, filters, graph_name):
     if ylims[1] > ylim_max:
         plt.ylim(top=ylim_max)
     plt.tight_layout()
-    figpath = (
-        f"figures/housing/final_test_loss_vs_sigma_multigraphs_graph{graph_name}.pdf"
-    )
+    figpath = f"figures/{dataset_name}/final_test_loss_vs_sigma_multigraphs_graph{graph_name}.pdf"
     plt.savefig(figpath)
     print(f"Saved fig to {figpath}")
     # plt.show()
 
 
 def main():
+    dataset_name = "housing"
     graph_names = [
         "florentine",
         "peertube (connex component)",
@@ -167,7 +166,8 @@ def main():
         ]
         if "peertube" in graph_name:
             methods_to_remove.append("ANTIPGD")
-        df = load_housing_data(
+        df = load_decentralized_simulation_data(
+            base_dir=f"results/{dataset_name}",
             param_filters=filters,
             methods_to_remove=methods_to_remove,
             only_last_step=True,
@@ -180,7 +180,10 @@ def main():
 
         current_df = df[df["graph_name"] == graph_name]
         plot_final_test_loss_vs_epsilon(
-            current_df, filters=filters, graph_name=graph_name
+            current_df,
+            filters=filters,
+            graph_name=graph_name,
+            dataset_name=dataset_name,
         )
 
     print("Finished plotting")

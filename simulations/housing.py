@@ -23,7 +23,7 @@ def housing_model_initializer(seed=421):
 
 
 def load_housing(
-    total_nodes, test_fraction=0.2, train_batch_size=32, test_batch_size=4096, seed=421
+    total_nodes, test_fraction=0.2, nb_batches=16, test_batch_size=4096, seed=421
 ):
     g = torch.Generator()
     g.manual_seed(seed)
@@ -34,11 +34,12 @@ def load_housing(
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=test_fraction, random_state=seed
     )
+
     train_dataloaders = split_data(
         X=X_train,
         y=y_train,
         total_nodes=total_nodes,
-        batch_size=train_batch_size,
+        nb_batches=nb_batches,
         generator=g,
     )
 

@@ -276,6 +276,18 @@ def profile_memory_usage(func):
     return wrapper
 
 
+def time_execution(func):
+    def wrapper(*args, **kwargs):
+        start_time = time.perf_counter()
+        result = func(*args, **kwargs)
+        end_time = time.perf_counter()
+        func_name = func.__name__
+        print(f"{func_name}: Execution time: {end_time - start_time:.6f} seconds")
+        return result
+
+    return wrapper
+
+
 def main():
     graph_name: GraphName = "peertube (connex component)"
     G = get_graph(graph_name, 0, 0)

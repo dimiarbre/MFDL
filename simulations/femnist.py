@@ -1,8 +1,14 @@
+import math
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.utils.data as data
 from data_utils import split_data
+from flwr_datasets import FederatedDataset
+from flwr_datasets.partitioner import GroupedNaturalIdPartitioner
+from sklearn.model_selection import train_test_split
+from torch.utils.data import ConcatDataset, DataLoader
 from torchvision import datasets, transforms
 
 
@@ -100,53 +106,68 @@ def dirichlet_partition(X, y, total_nodes, alpha=0.5, batch_size=32, generator=N
     return dataloaders
 
 
+def to_torch_data(partition):
+    to_tensor = transforms.ToTensor()
+    images = torch.stack([to_tensor(x) for x in partition["image"]])
+    labels = torch.tensor(partition["character"])
+
+    return data.TensorDataset(images, labels)
+
+
 def load_femnist(
     total_nodes,
     test_fraction=0.2,
-    train_batch_size=32,
+    nb_batches=16,
     test_batch_size=4096,
     seed=421,
     data_dir="./data",
 ):
     g = torch.Generator()
     g.manual_seed(seed)
-    transform = transforms.Compose(
-        [
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,)),  # Standard MNIST normalization
-        ]
+    fds = FederatedDataset(
+        dataset="flwrlabs/femnist",
+        partitioners={
+            "train": GroupedNaturalIdPartitioner(
+                partition_by="writer_id", group_size=10
+            )
+        },
     )
-    # Download FEMNIST as EMNIST 'byclass' split
-    train_dataset = datasets.EMNIST(
-        root=data_dir, split="byclass", train=True, download=True, transform=transform
-    )
-    test_dataset = datasets.EMNIST(
-        root=data_dir, split="byclass", train=False, download=True, transform=transform
-    )
+    train_dataloaders = []
+    test_datasets = []
+    for i in range(total_nodes):
+        partition = fds.load_partition(partition_id=i)
 
-    # Convert to tensors for splitting
-    X_train = train_dataset.data.unsqueeze(1).float() / 255.0  # [N, 1, 28, 28]
-    y_train = train_dataset.targets
-    X_test = test_dataset.data.unsqueeze(1).float() / 255.0
-    y_test = test_dataset.targets
+        # Convert partition to torch dataset
+        dataset = to_torch_data(partition)
+        images = dataset.tensors[0]
+        labels = dataset.tensors[1]
 
-    # Optionally shuffle before splitting
-    perm = torch.randperm(len(X_train), generator=g)
-    X_train, y_train = X_train[perm], y_train[perm]
+        train_imgs, test_imgs, train_labels, test_labels = train_test_split(
+            images,
+            labels,
+            test_size=test_fraction,
+            random_state=seed,  # , stratify=labels
+        )
 
-    train_dataloaders = split_data(
-        X=X_train,
-        y=y_train,
-        total_nodes=total_nodes,
-        batch_size=train_batch_size,
-        generator=g,
-    )
+        train_batch_size = max(1, math.ceil(len(train_imgs) / nb_batches))
 
-    test_dataloader = data.DataLoader(
-        data.TensorDataset(X_test, y_test),
+        torch_dataloader = data.DataLoader(
+            data.TensorDataset(train_imgs, train_labels),
+            batch_size=train_batch_size,
+            shuffle=True,
+        )
+        train_dataloaders.append(torch_dataloader)
+
+        test_datasets.append(data.TensorDataset(test_imgs, test_labels))
+
+    test_dataset = ConcatDataset(test_datasets)
+    test_dataloader = DataLoader(
+        test_dataset,
         batch_size=test_batch_size,
-        shuffle=True,
+        shuffle=False,
         generator=g,
+        pin_memory=True,
+        num_workers=4,
     )
 
     return train_dataloaders, test_dataloader
@@ -154,15 +175,16 @@ def load_femnist(
 
 def main():
     # Parameters
-    total_nodes = 5
-    train_batch_size = 32
-    test_batch_size = 256
+    total_nodes = 148
+    nb_batches = 16
+    test_batch_size = 4096
     seed = 42
+    lr = 0.1
 
     # Load data
     train_dataloaders, test_dataloader = load_femnist(
         total_nodes=total_nodes,
-        train_batch_size=train_batch_size,
+        nb_batches=nb_batches,
         test_batch_size=test_batch_size,
         seed=seed,
     )
@@ -181,38 +203,43 @@ def main():
 
     # Instantiate model and print summary
     model = femnist_model_initializer(seed=seed)
+    # model = FEMNISTCNN(seed)
     print(model)
     num_params = sum(p.numel() for p in model.parameters())
-    lr = 0.2
     print(f"Number of parameters: {num_params}. LR: {lr}")
 
     import matplotlib.pyplot as plt
 
-    # Quick training loop
+    # Quick training loop to evaluate the model in a centralized setting
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
 
-    epochs = 10
+    # Concatenate all train datasets and create a single shuffled DataLoader
+    all_train_dataset = ConcatDataset([dl.dataset for dl in train_dataloaders])
+    shuffled_train_dataloader = DataLoader(
+        all_train_dataset, batch_size=2024, shuffle=True
+    )
+
+    epochs = 20
     train_losses = []
     for epoch in range(epochs):
         model.train()
         running_loss = 0.0
         total = 0
         correct = 0
-        for dl in train_dataloaders:
-            for X, y in dl:
-                X, y = X.to(device), y.to(device)
-                optimizer.zero_grad()
-                outputs = model(X)
-                loss = criterion(outputs, y)
-                loss.backward()
-                optimizer.step()
-                running_loss += loss.item() * X.size(0)
-                _, preds = outputs.max(1)
-                correct += (preds == y).sum().item()
-                total += y.size(0)
+        for X, y in shuffled_train_dataloader:
+            X, y = X.to(device), y.to(device)
+            optimizer.zero_grad()
+            outputs = model(X)
+            loss = criterion(outputs, y)
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item() * X.size(0)
+            _, preds = outputs.max(1)
+            correct += (preds == y).sum().item()
+            total += y.size(0)
         avg_loss = running_loss / total
         acc = correct / total
         train_losses.append(avg_loss)
@@ -223,6 +250,7 @@ def main():
     plt.plot(range(1, epochs + 1), train_losses, marker="o")
     plt.xlabel("Epoch")
     plt.ylabel("Training Loss")
+    plt.grid()
     plt.title("FEMNIST Training Loss")
     plt.show()
 
@@ -244,29 +272,29 @@ def main():
     test_acc = test_correct / test_total
     print(f"Test Loss: {avg_test_loss:.4f} - Test Acc: {test_acc:.4f}")
 
-    # Use Dirichlet partitioner instead of default split_data
-    X_train = train_dataloaders[0].dataset.tensors[0].new_empty(0)
-    y_train = train_dataloaders[0].dataset.tensors[1].new_empty(0, dtype=torch.long)
-    for dl in train_dataloaders:
-        X_train = torch.cat([X_train, dl.dataset.tensors[0]], dim=0)
-        y_train = torch.cat([y_train, dl.dataset.tensors[1]], dim=0)
+    # # Use Dirichlet partitioner instead of default split_data
+    # X_train = train_dataloaders[0].dataset.tensors[0].new_empty(0)
+    # y_train = train_dataloaders[0].dataset.tensors[1].new_empty(0, dtype=torch.long)
+    # for dl in train_dataloaders:
+    #     X_train = torch.cat([X_train, dl.dataset.tensors[0]], dim=0)
+    #     y_train = torch.cat([y_train, dl.dataset.tensors[1]], dim=0)
 
-    dirichlet_dataloaders = dirichlet_partition(
-        X=X_train,
-        y=y_train,
-        total_nodes=total_nodes,
-        alpha=0.5,
-        batch_size=train_batch_size,
-        generator=torch.Generator().manual_seed(seed),
-    )
+    # dirichlet_dataloaders = dirichlet_partition(
+    #     X=X_train,
+    #     y=y_train,
+    #     total_nodes=total_nodes,
+    #     alpha=0.5,
+    #     batch_size=train_batch_size,
+    #     generator=torch.Generator().manual_seed(seed),
+    # )
 
-    print("\n[Dirichlet Partition]")
-    for i, dl in enumerate(dirichlet_dataloaders):
-        print(f"Node {i}: {len(dl.dataset)} samples, {len(dl)} batches")
-        labels = dl.dataset.tensors[1].numpy()
-        unique, counts = np.unique(labels, return_counts=True)
-        class_counts = dict(zip(unique, counts))
-        print(f"  Class distribution: {class_counts}")
+    # print("\n[Dirichlet Partition]")
+    # for i, dl in enumerate(dirichlet_dataloaders):
+    #     print(f"Node {i}: {len(dl.dataset)} samples, {len(dl)} batches")
+    #     labels = dl.dataset.tensors[1].numpy()
+    #     unique, counts = np.unique(labels, return_counts=True)
+    #     class_counts = dict(zip(unique, counts))
+    #     print(f"  Class distribution: {class_counts}")
 
 
 if __name__ == "__main__":

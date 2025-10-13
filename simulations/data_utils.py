@@ -1,9 +1,11 @@
+import math
+
 import torch
 import torch.utils.data as data
 
 
 def split_data(
-    X, y, total_nodes: int, batch_size, generator: torch.Generator
+    X, y, total_nodes: int, nb_batches, generator: torch.Generator
 ) -> list[data.DataLoader]:
     idx = torch.arange(len(X))
 
@@ -12,6 +14,7 @@ def split_data(
         # Simple partition: split by node_id
         node_idx = idx[node_id::total_nodes]
         ds = data.TensorDataset(X[node_idx], y[node_idx])
+        batch_size = max(1, math.ceil(len(X) / nb_batches))
         dataloaders.append(
             data.DataLoader(
                 ds,

@@ -13,13 +13,13 @@ from utils import METHOD_COLORS, METHOD_DISPLAY_NAMES
 PARAM_MAP = {
     "_graph": "graph_name",
     "_nodes": "num_nodes",
-    "_eps": "epsilon",
+    "_mu": "mu",
     "_reps": "num_passes",
     "_nbbatches": "nb_big_batches",
     "_mbps": "micro_batches_per_step",
     "_lr": "lr",
     "_seed": "dataloader_seed",
-    "_mbsize": "micro_batch_size",
+    # "_mbsize": "micro_batch_size",
     "_steps": "total_steps",
 }
 
@@ -32,10 +32,10 @@ def extract_params_from_filename(filename: str) -> Dict[str, str]:
     Returns a dictionary of parameter names to values.
     """
     basename = os.path.basename(filename)
-    pattern = r"(_graph[ A-Za-z0-9\(\)]+|_nodes\d+|_eps[\d\.]+|_reps\d+|_nbbatches\d+|_mbps\d+|_lr[\d\.]+|_seed\d+|_mbsize\d+|_steps\d+)"
+    pattern = r"(_graph[ A-Za-z0-9\(\)]+|_nodes\d+|_mu[\d\.]+|_reps\d+|_nbbatches\d+|_mbps\d+|_lr[\d\.]+|_seed\d+|_steps\d+)"
     matches = re.findall(pattern, basename)
     params = {}
-    float_params = {"epsilon", "lr"}
+    float_params = {"mu", "lr"}
     int_params = {
         "num_nodes",
         "num_passes",
@@ -60,7 +60,7 @@ def extract_params_from_filename(filename: str) -> Dict[str, str]:
     return params
 
 
-def load_housing_data(
+def load_decentralized_simulation_data(
     base_dir: str = "results/housing",
     param_filters: Optional[Dict[str, List]] = None,
     methods_to_remove=[],
@@ -116,6 +116,7 @@ def plot_housing_results_with_ci(
     log_scale: bool = False,
     min_max: bool = False,
     filename: str = "",
+    dataset_name: str = "housing",
 ):
     """
     Plots the mean and confidence interval of loss_attr for each method as a function of step.
@@ -139,14 +140,16 @@ def plot_housing_results_with_ci(
             method_df.groupby(["step", "dataloader_seed"])[loss_attr]
             .mean()
             .reset_index()
-        )
+        ).dropna()
         # For each step, get mean and std over seeds
         means = []
         stds = []
         ci95s = []
         ci99s = []
-        for step in steps:
+        computed_steps = grouped["step"]
+        for step in computed_steps:
             seed_means = grouped[grouped["step"] == step][loss_attr].values
+            seed_means = seed_means[~np.isnan(seed_means)]
             means.append(np.mean(seed_means))
             n = len(seed_means)
             stds.append(np.std(seed_means))
@@ -162,7 +165,7 @@ def plot_housing_results_with_ci(
         # Save means and stds for each method
         results_df = pd.DataFrame(
             {
-                "step": steps,
+                "step": computed_steps,
                 f"{method}_mean": means_np,
                 f"{method}_std": stds_np,
                 f"{method}_ci95": ci95s_np,
@@ -174,9 +177,13 @@ def plot_housing_results_with_ci(
         all_results_df = pd.concat([all_results_df, results_df], ignore_index=True)
 
         color = METHOD_COLORS[method]
-        ax.plot(steps, means, label=method, color=color)
+        ax.plot(computed_steps, means, label=method, color=color)
         ax.fill_between(
-            steps, means_np - ci95s_np, means_np + ci95s_np, alpha=0.2, color=color
+            computed_steps,
+            means_np - ci95s_np,
+            means_np + ci95s_np,
+            alpha=0.2,
+            color=color,
         )
 
         method_means[method] = means_np
@@ -188,6 +195,10 @@ def plot_housing_results_with_ci(
         last_50_idx = -50 if len(steps) >= 50 else 0
         a_vals = method_means[method_a][last_50_idx:]
         b_vals = method_means[method_b][last_50_idx:]
+        # # Remove nans from both arrays
+        # mask = ~np.isnan(a_vals) & ~np.isnan(b_vals)
+        # a_vals = a_vals[mask]
+        # b_vals = b_vals[mask]
         # Percentage improvement: (a - b) / a * 100
         perc_improvement = (a_vals - b_vals) / a_vals * 100
         avg_improvement = np.mean(perc_improvement)
@@ -222,26 +233,30 @@ def plot_housing_results_with_ci(
     plt.grid()
     plt.tight_layout()
     if filename == "":
-        filename = f"housing_{loss_attr}_ci_plot"
-    csv_path = f"results/housing_data/{filename}.csv"
+        filename = f"{dataset_name}_{loss_attr}_ci_plot"
+    csv_path = f"results/{dataset_name}_data/{filename}.csv"
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
     all_results_df.to_csv(csv_path)
     if debug:
         plt.show()
     else:
-        plt.savefig(f"figures/housing/{filename}.pdf")
+        pdf_path = f"figures/{dataset_name}/{filename}.pdf"
+        os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+        plt.savefig(pdf_path)
 
 
 def main():
+    dataset_name = "femnist"
+    loss_attr = "test_acc"
     # Only load files with eps=0.5 and seed=421
     filters: Dict[str, List] = {
         "graph_name": ["ego"],
         "num_passes": [20],
-        "epsilon": [
+        "mu": [
             10.0,
             0.5,
             0.2,
-            1.0,
+            # 1.0,
             0.1,
             2.0,
         ],  # Remember to put floats here (1.0,...)
@@ -253,22 +268,26 @@ def main():
         "OPTIMAL_LOCAL",
     ]
 
-    df = load_housing_data(param_filters=filters, methods_to_remove=methods_to_remove)
-    assert not df.empty, "Empty dataframe, check you used floats in epsilon"
+    df = load_decentralized_simulation_data(
+        param_filters=filters,
+        methods_to_remove=methods_to_remove,
+        base_dir=f"results/{dataset_name}",
+    )
+    assert not df.empty, "Empty dataframe, check you used floats in mu"
 
-    for epsilon in filters["epsilon"]:
-        epsilon = float(epsilon)
-        current_df = df[df["epsilon"] == epsilon]
+    for mu in filters["mu"]:
+        mu = float(mu)
+        current_df = df[df["mu"] == mu]
 
         # Ensures we are on an unique setting in all the experiments
         for _, param in PARAM_MAP.items():
             if "seed" not in param:  # Allow seeding arguments.
                 assert (
                     len(current_df[param].unique()) == 1
-                ), f"Got multiple values for parameter {param}"
+                ), f"Got multiple values for parameter {param}: {current_df[param].unique()}"
 
         # df = df[df["method"] != "LDP"]
-        if epsilon < 0.5:  # Remove them from the plot as they don't converge.
+        if mu < 0.5:  # Remove them from the plot as they don't converge.
             current_df = current_df[current_df["method"] != "ANTIPGD"]
             current_df = current_df[current_df["method"] != "BSR_BANDED_LOCAL"]
 
@@ -284,11 +303,12 @@ def main():
         # Usage:
         plot_housing_results_with_ci(
             current_df,
-            loss_attr="test_loss",  # Change to "train_loss" if needed
+            loss_attr=loss_attr,
             debug=False,
             log_scale=False,
             min_max=False,
-            filename=f"housing_test_loss_ci_plot_epsilon{epsilon}",
+            filename=f"{dataset_name}_test_loss_ci_plot_mu{mu}",
+            dataset_name=dataset_name,
         )
 
     print("Finished plotting")
