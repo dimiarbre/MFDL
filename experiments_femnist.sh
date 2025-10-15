@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # num_repetitions=(5 10)
 # nb_nodes_list=(10 20 50 100)
 # epsilons=(0.01 0.05 0.1 0.5 1 10)
@@ -6,8 +8,7 @@
 # seeds=(421 422 423 424 425 426 427 428 429 430)
 
 num_repetitions=(20)
-mu=(1 0.1 10 0.5 2 0.2 5)
-
+mu_list=( 1.0 0.1 10.0 0.5 2.0 0.2 5.0)
 # nb_nodes_list=(15)
 # graph_names=(florentine)
 
@@ -17,14 +18,22 @@ mu=(1 0.1 10 0.5 2 0.2 5)
 # nb_nodes_list=(271)
 # graph_names=("peertube (connex component)")
 
-lrs=(0.1)
+# lrs=(0.1)
+# lrs=(1 0.01 0.1 0.001 0.05 0.005 0.02 2 5 10 25 50)
+
+# micro_batches_per_iteration=(10 5 1)
+micro_batches_per_iteration=(1)
+
 
 seeds=(421 422 423 424 425 426 427 428 429 430 431 432 433 434 435 436 437 438 439 440)
+# seeds=(421)
 
 
 max_jobs=1
 recompute_flag=""
 pre_cache_flag=""
+run_with="local"
+hyperparameter_flag="--use_optimals"
 for arg in "$@"; do
     if [[ "$arg" == "--recompute" ]]; then
         recompute_flag="--recompute"
@@ -34,14 +43,23 @@ for arg in "$@"; do
     elif [[ "$arg" == "--graph=florentine" ]]; then
         nb_nodes_list=(15)
         graph_names=("florentine")
+        lrs=(5.0) # Florentine
     elif [[ "$arg" == "--graph=ego" ]]; then
         nb_nodes_list=(148)
         graph_names=("ego")
+        lrs=(2.0) # Ego
     elif [[ "$arg" == "--graph=peertube" ]]; then
         nb_nodes_list=(271)
         graph_names=("peertube (connex component)")
     elif [[ "$arg" == --threads=* ]]; then
         max_jobs="${arg#--threads=}"
+    elif [[ "$arg" == --run_with=slurm ]]; then
+        run_with="slurm"
+    elif [[ "$arg" == "--hyperparameters" ]]; then
+        hyperparameter_flag="--hyperparameters"
+        mu_list=(1)
+        seeds=(421)
+        lrs=(1 0.01 0.1 0.001 0.05 0.005 0.02 2 5 10 25 50)
     else
         echo "Error: Unrecognized argument '$arg'" >&2
         exit 1
@@ -52,11 +70,13 @@ done
 total_configs=0
 for num_repetition in "${num_repetitions[@]}"; do
     for nb_nodes in "${nb_nodes_list[@]}"; do
-        for mu in "${mu[@]}"; do
+        for mu in "${mu_list[@]}"; do
             for graph_name in "${graph_names[@]}"; do
                 for lr in "${lrs[@]}"; do
                     for seed in "${seeds[@]}"; do
-                        total_configs=$((total_configs + 1))
+                        for nb_micro_batches in "${micro_batches_per_iteration[@]}"; do
+                            total_configs=$((total_configs + 1))
+                        done
                     done
                 done
             done
@@ -64,7 +84,26 @@ for num_repetition in "${num_repetitions[@]}"; do
     done
 done
 
+echo "num_repetitions: ${num_repetitions[@]}"
+echo "nb_nodes_list: ${nb_nodes_list[@]}"
+echo "mu_list: ${mu_list[@]}"
+echo "graph_names: ${graph_names[@]}"
+echo "lrs: ${lrs[@]}"
+echo "micro_batches_per_iteration: ${micro_batches_per_iteration[@]}"
+echo "seeds: ${seeds[@]}"
+echo "max_jobs: $max_jobs"
+echo "run_with: $run_with"
+echo "hyperparameter_flag: $hyperparameter_flag"
+echo "recompute_flag: $recompute_flag"
+echo "pre_cache_flag: $pre_cache_flag"
 echo "Total configurations: $total_configs"
+echo "Proceed with these parameters? (y/n)"
+read -r answer
+if [[ "$answer" != "y" ]]; then
+    echo "Aborted by user."
+    exit 0
+fi
+
 
 current_config=0
 
@@ -79,22 +118,30 @@ trap 'echo "Killing all child jobs..."; for pgid in "${pids[@]}"; do kill -- -$p
 start_time=$(date +%s)
 for num_repetition in "${num_repetitions[@]}"; do
     for nb_nodes in "${nb_nodes_list[@]}"; do
-        for mu in "${mu[@]}"; do
+        for mu in "${mu_list[@]}"; do
             for graph_name in "${graph_names[@]}"; do
-                for lr in "${lrs[@]}"; do
-                    for seed in "${seeds[@]}"; do
-                        current_config=$((current_config + 1))
-                        echo "Running configuration $current_config / $total_configs"
-                        cmd=(python simulations/decentralized_simulation.py --nb_nodes $nb_nodes --lr $lr --num_repetition $num_repetition --nb_batches 16 --mu $mu --graph_name "$graph_name" --use_optimals $recompute_flag $pre_cache_flag --dataloader_seed $seed --dataset femnist)
-                        echo "${cmd[@]}":
-                        setsid "${cmd[@]}" &
-                        pid=$!
-                        pids+=($pid)
-                        job_count=$((job_count + 1))
-                        if (( job_count >= max_jobs )); then
-                            wait -n
-                            job_count=$((job_count - 1))
-                        fi
+                for nb_micro_batches in "${micro_batches_per_iteration[@]}"; do
+                    for lr in "${lrs[@]}"; do
+                        for seed in "${seeds[@]}"; do
+                            current_config=$((current_config + 1))
+                            echo "Running configuration $current_config / $total_configs"
+                            cmd=(python -u simulations/decentralized_simulation.py --nb_nodes $nb_nodes --lr $lr --num_repetition $num_repetition --nb_batches 16 --mu $mu --graph_name "$graph_name" --use_optimals $hyperparameter_flag $recompute_flag $pre_cache_flag --dataloader_seed $seed --dataset femnist --nb_micro_batches $nb_micro_batches)
+                            if [[ "$run_with" == "slurm" ]]; then
+                                slurm_cmd=(sbatch ./jean_zay_launch.slurm "\"${cmd[@]}\"")
+                                echo "${slurm_cmd[@]}"
+                                eval "${slurm_cmd[@]}"
+                            else
+                                echo "${cmd[@]}"
+                                setsid "${cmd[@]}" &
+                                pid=$!
+                                pids+=($pid)
+                                job_count=$((job_count + 1))
+                                if (( job_count >= max_jobs )); then
+                                    wait -n
+                                    job_count=$((job_count - 1))
+                                fi
+                            fi
+                        done
                     done
                 done
             done

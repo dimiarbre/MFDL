@@ -7,7 +7,6 @@ import os
 import time
 import warnings
 
-import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import pandas as pd
@@ -153,17 +152,19 @@ def run_decentralized_training(
     # Ensure all models start from the same initial weights by seeding before each model creation
     models = []
     for _ in range(num_nodes):
-        torch.manual_seed(seed)
-        np.random.seed(seed)
         model = GradSampleModule(model_initializer(seed)).to(device)
         models.append(model)
     participations_intervals = [
         len(trainloader) // micro_batches_per_step for trainloader in trainloaders
     ]
+    # Average all models at the beginning to ensure identical weights
+    average_step(nx.complete_graph(num_nodes), models)
+
     # optimizers = [optim.Adam(models[i].parameters(), lr=1e-2) for i in range(num_nodes)]
     optimizers = []
     for i in range(num_nodes):
-        batch_size = trainloaders[i].batch_size
+        # We use the effective batch size for the DP guarantees.
+        batch_size = min([X_batch.size(0) for X_batch, _ in trainloaders[i]])
         assert batch_size is not None, "Batch size should not be None"
         optimizers.append(
             MFDLSGD(
@@ -201,8 +202,9 @@ def run_decentralized_training(
             f"Step {step + 1:>{len(str(num_steps))}}/{num_steps} | "
             f"Step time: {step_time_str} | Avg: {avg_time_str} | ETA: {eta_str}"
         )
+
         start_step_time = time.time()
-        nb_resets += learning_step(
+        has_reset = learning_step(
             models,
             loss_function=loss_function,
             nb_micro_batches_per_step=micro_batches_per_step,
@@ -211,6 +213,15 @@ def run_decentralized_training(
             dataloaders=trainloaders,
             device=device,
         )
+        nb_resets += has_reset
+
+        # Apply learning rate decay every 10 epochs (when nb_resets reaches multiples of 10)
+        if has_reset and nb_resets in [5]:
+            for optimizer in optimizers:
+                for param_group in optimizer.param_groups:
+                    param_group["lr"] *= 0.1  # reduce LR by factor of 2
+            print(f"Learning rate decayed at step epoch {step}")
+
         average_step(graph, models)
         # Time evaluation of train and test losses
         eval_start_time = time.time()
@@ -231,7 +242,7 @@ def run_decentralized_training(
             eval_end_time = time.time()
             eval_duration = eval_end_time - eval_start_time
             print(
-                f"Evaluation took {eval_duration:.2f} seconds. Average test acc: {np.mean(step_test_acc)*100:.2f}%"
+                f"Evaluation took {eval_duration:.2f} seconds. Average test acc: {np.mean(step_test_acc)*100:.2f}%, average test loss: {np.mean(step_test_losses):.4f}."
             )
         else:
             # Fill with None or previous value if you want to keep shape
@@ -308,7 +319,6 @@ def run_simulation(
     mu: float,
     dataset_name,
     device_name: str,
-    nb_micro_batches,
     dataloader_seed,
     lr: float,
     nb_batches,
@@ -322,14 +332,14 @@ def run_simulation(
             dataset_name,
             seed=dataloader_seed,
             nb_nodes=n,
-            nb_big_batches=nb_batches,
+            nb_big_batches=nb_batches * micro_batches_per_step,
         )
     )
     name, C = args
     print(f"Running simulation for {name} (PID: {os.getpid()})")
     sens = compute_sensitivity(
         C,
-        participation_interval=nb_micro_batches // micro_batches_per_step,
+        participation_interval=nb_batches,
         nb_steps=num_steps,
     )
     print(f"sens²(C_{name}) = {sens**2}")
@@ -366,8 +376,10 @@ def run_experiment(
     seed=421,
     lr=1e-1,
     nb_big_batches=16,
+    nb_micro_batches=1,
     recompute: bool = False,
     pre_cache: bool = False,
+    nonoise_only=False,
 ):
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
     # device_name = "cpu"
@@ -379,19 +391,7 @@ def run_experiment(
     nb_nodes = G.number_of_nodes()
     communication_matrix = get_communication_matrix(G)
 
-    micro_batches_per_step = 1
-
-    trainloaders, _, _, _ = get_datasets_and_model_initializer(
-        dataset_name, seed, nb_nodes, nb_big_batches
-    )
-
-    nb_micro_batches_list = [len(loader) for loader in trainloaders]
-    del trainloaders  # Memory optimization
-    print(nb_micro_batches_list)
-    assert np.all(np.array(nb_micro_batches_list) == np.min(nb_micro_batches_list))
-    nb_micro_batches_val = np.min(nb_micro_batches_list)
-
-    num_steps = num_repetition * (nb_micro_batches_val // micro_batches_per_step)
+    num_steps = num_repetition * nb_big_batches
 
     print(f"Number of steps per epoch: {num_steps // num_repetition}")
 
@@ -402,66 +402,43 @@ def run_experiment(
         f"mu{mu}_"
         f"reps{num_repetition}_"
         f"nbbatches{nb_big_batches}_"
-        f"mbps{micro_batches_per_step}_"
+        f"mbps{nb_micro_batches}_"
         f"lr{lr}_"
         f"seed{seed}_"
         f"steps{num_steps}_"  # Should be redundant
     )
-    details = (
-        f"Dataset: {dataset_name} | "
-        f"Graph: {graph_name} | "
-        f"Nb nodes: {nb_nodes} | "
-        f"Micro-batches per step: {micro_batches_per_step} | "
-        f"Nb big batches: {nb_big_batches} | "
-        f"Num_repetitions: {num_repetition}"
-    )
     csv_path = f"results/{dataset_name}/simulation_{current_experiment_properties}.csv"
 
+    if nonoise_only:
+        csv_path = (
+            f"results/{dataset_name}/HPTuning_{current_experiment_properties}.csv"
+        )
+
+    df = pd.DataFrame({})
     # Check if results already exist and skip if not recomputing
     if (not recompute) and os.path.exists(csv_path):
-        print(f"Results already exist at {csv_path}. Skipping computation.")
-        return
+        df = pd.read_csv(csv_path)
 
-    # Here, we only consider "local" correlations, hence nb_nodes = 1.
-    C_NONOISE = np.zeros((num_steps, num_steps))
-    C_LDP = workloads_generator.MF_LDP(nb_nodes=1, nb_iterations=num_steps)
-    C_ANTIPGD = workloads_generator.MF_ANTIPGD(nb_nodes=1, nb_iterations=num_steps)
-    C_SR_LOCAL = workloads_generator.SR_local_factorization(nb_iterations=num_steps)
-    C_BSR_LOCAL = workloads_generator.BSR_local_factorization(
-        nb_iterations=num_steps, nb_epochs=num_repetition
-    )
-
-    all_test_losses = {}
-    all_train_losses = {}
-    all_test_accs = {}
-
-    configs = [
-        ("Unnoised baseline", C_NONOISE),
-        ("LDP", C_LDP),
-        ("ANTIPGD", C_ANTIPGD),
-        # ("BSR_LOCAL", C_SR_LOCAL),
-        ("BSR_BANDED_LOCAL", C_BSR_LOCAL),
-    ]
-
-    if use_optimals:
-        print("Starting computation of C_OPTIMAL_LOCAL...")
-        start_time_local = time.time()
-        C_OPTIMAL_LOCAL = workloads_generator.MF_OPTIMAL_local(
+    config_generators = {
+        "Unnoised baseline": lambda: np.zeros((num_steps, num_steps)),
+        "LDP": lambda: workloads_generator.MF_LDP(
+            nb_nodes=1, nb_iterations=num_steps
+        ),  # "local" correlation, hence nb_nodes=1
+        "ANTIPGD": lambda: workloads_generator.MF_ANTIPGD(
+            nb_nodes=1, nb_iterations=num_steps
+        ),  # "local" correlation, hence nb_nodes=1
+        "BSR_BANDED_LOCAL": lambda: workloads_generator.BSR_local_factorization(
+            nb_iterations=num_steps, nb_epochs=num_repetition
+        ),
+        "OPTIMAL_LOCAL": lambda: workloads_generator.MF_OPTIMAL_local(
             communication_matrix=communication_matrix,
             nb_nodes=nb_nodes,
             nb_steps=num_steps,
             nb_epochs=num_repetition,
             caching=True,
             verbose=True,
-        )
-        elapsed_time_local = time.time() - start_time_local
-        print(
-            f"Finished computation of C_OPTIMAL_LOCAL in {elapsed_time_local:.2f} seconds."
-        )
-
-        print("Starting computation of C_OPTIMAL_MSG...")
-        start_time_dl = time.time()
-        C_OPTIMAL_DL = workloads_generator.MF_OPTIMAL_DL(
+        ),
+        "OPTIMAL_DL_MSG": lambda: workloads_generator.MF_OPTIMAL_DL(
             communication_matrix=communication_matrix,
             nb_nodes=nb_nodes,
             nb_steps=num_steps,
@@ -471,13 +448,8 @@ def run_experiment(
             seed=seed,
             caching=True,
             verbose=True,
-        )
-        elapsed_time_dl = time.time() - start_time_dl
-        print(f"Finished computation of C_OPTIMAL_DL in {elapsed_time_dl:.2f} seconds.")
-
-        print("Starting computation of C_OPTIMAL_DL...")
-        start_time_dl = time.time()
-        C_OPTIMAL_DL_POSTAVERAGE = workloads_generator.MF_OPTIMAL_DL(
+        ),
+        "OPTIMAL_DL_POSTAVG": lambda: workloads_generator.MF_OPTIMAL_DL(
             communication_matrix=communication_matrix,
             nb_nodes=nb_nodes,
             nb_steps=num_steps,
@@ -487,91 +459,54 @@ def run_experiment(
             seed=seed,
             caching=True,
             verbose=True,
-        )
-        elapsed_time_dl = time.time() - start_time_dl
-        print(f"Finished computation of C_OPTIMAL_DL in {elapsed_time_dl:.2f} seconds.")
+        ),
+    }
 
-        plotters.plot_factorization(
-            C_OPTIMAL_DL,
-            title="C Optimal DL workload",
-            details=details,
-            save_name_properties=f"DLopti_{current_experiment_properties}",
-            debug=debug,
-        )
-        plotters.plot_factorization(
-            C_OPTIMAL_DL_POSTAVERAGE,
-            title="C optimal DL averaged workload",
-            details=details,
-            save_name_properties=f"DLAVGopti_{current_experiment_properties}",
-            debug=debug,
-        )
-        plotters.plot_factorization(
-            C_OPTIMAL_LOCAL,
-            title="C optimal Local workload",
-            details=details,
-            save_name_properties=f"LOCALopti_{current_experiment_properties}",
-            debug=debug,
-        )
-
-        compute_sensitivity(
-            C_OPTIMAL_LOCAL,
-            participation_interval=num_steps // num_repetition,
-            nb_steps=num_steps,
-        )
-
-        compute_sensitivity(
-            C_OPTIMAL_DL,
-            participation_interval=num_steps // num_repetition,
-            nb_steps=num_steps,
-        )
-        compute_sensitivity(
-            C_OPTIMAL_DL_POSTAVERAGE,
-            participation_interval=num_steps // num_repetition,
-            nb_steps=num_steps,
-        )
-        configs.append(("OPTIMAL_DL_MSG", C_OPTIMAL_DL))
-        configs.append(("OPTIMAL_DL_POSTAVG", C_OPTIMAL_DL_POSTAVERAGE))
-        configs.append(("OPTIMAL_LOCAL", C_OPTIMAL_LOCAL))
-
+    if nonoise_only:
+        config_generators = {
+            "Unnoised baseline": config_generators["Unnoised baseline"]
+        }
+    if not use_optimals:
+        configs_smaller = {
+            name: config_generators[name]
+            for name in config_generators
+            if name not in ["OPTIMAL_LOCAL", "OPTIMAL_DL_MSG", "OPTIMAL_DL_POSTAVG"]
+        }
+        config_generators = configs_smaller
     if pre_cache:
         # Don't run simulations, useful for servers where factorization is quick but simulation slow.
+        for name, config in config_generators.items():
+            print(f"Pre-computing config: {name}")
+            t0 = time.time()
+            res = config()
+            t1 = time.time()
+            print(f"Computed {name} in {t1-t0:.2f}s")
         return
 
     # Use ProcessPoolExecutor for true parallelism with PyTorch
     run_sim_args = {
         "G": G,
         "num_steps": num_steps,
-        "micro_batches_per_step": micro_batches_per_step,
+        "micro_batches_per_step": nb_micro_batches,
         "mu": mu,
         "dataset_name": dataset_name,
         "device_name": device_name,
-        "nb_micro_batches": nb_micro_batches_val,
         "dataloader_seed": seed,
         "lr": lr,
         "nb_batches": nb_big_batches,
     }
     run_simulation_partial = functools.partial(run_simulation, **run_sim_args)
 
-    if True:
-        results = []
-        for config in configs:
-            results.append(run_simulation_partial(config))
-    else:
-        context = multiprocessing.get_context("spawn")
-        with concurrent.futures.ProcessPoolExecutor(mp_context=context) as executor:
-            results = list(executor.map(run_simulation_partial, configs))
+    for name, config in config_generators.items():
+        if "method" in df.columns and name in df["method"].unique():
+            print(f"Skipping already-computed method {name} ")
+            continue
+        config_params = (name, config())
+        res = run_simulation_partial(config_params)
+        name, test_losses, train_losses, test_accs = res
 
-    for name, test_losses, train_losses, test_accs in results:
-        all_test_losses[name] = test_losses
-        all_train_losses[name] = train_losses
-        all_test_accs[name] = test_accs
-
-    # Organize results into a DataFrame
-    records = []
-    for name in all_test_losses.keys():
-        test_losses = all_test_losses[name]
-        train_losses = all_train_losses[name]
-        test_accs = all_test_accs[name]
+        # Organize results in a DF
+        records = []
         for step in range(test_losses.shape[0]):
             for node in range(test_losses.shape[1]):
                 records.append(
@@ -584,41 +519,39 @@ def run_experiment(
                         "test_acc": test_accs[step, node],
                     }
                 )
-    df = pd.DataFrame(records)
-    # Add experiment parameters to the DataFrame for each record
-    df["graph_name"] = graph_name
-    df["num_passes"] = num_repetition
-    df["total_steps"] = num_steps
-    df["num_nodes"] = nb_nodes
-    df["num_repetitions"] = num_repetition
-    df["micro_batches_per_step"] = micro_batches_per_step
-    df["nb_micro_batches"] = nb_micro_batches_val
-    df["nb_big_batches"] = nb_big_batches
-    df["device"] = device_name
-    df["dataloader_seed"] = run_sim_args["dataloader_seed"]
-    df["lr"] = run_sim_args["lr"]
-    df["mu"] = mu
-    df["dataset_name"] = dataset_name
+        current_df = pd.DataFrame(records)
+        # Add experiment parameters to the DataFrame for each record
+        current_df["graph_name"] = graph_name
+        current_df["num_passes"] = num_repetition
+        current_df["total_steps"] = num_steps
+        current_df["num_nodes"] = nb_nodes
+        current_df["num_repetitions"] = num_repetition
+        current_df["micro_batches_per_step"] = nb_micro_batches
+        current_df["nb_micro_batches"] = nb_micro_batches
+        current_df["nb_big_batches"] = nb_big_batches
+        current_df["dataloader_seed"] = run_sim_args["dataloader_seed"]
+        current_df["lr"] = run_sim_args["lr"]
+        current_df["mu"] = mu
+        current_df["dataset_name"] = dataset_name
 
-    # Save to CSV
-    if not debug:
-        os.makedirs(os.path.dirname(csv_path), exist_ok=True)
-        df.to_csv(csv_path, index=False)
-        print(f"Results saved to {csv_path}")
+        # Concat the two DF
+        df = pd.concat((df, current_df))
 
-    plotters.plot_housing_results(
-        all_test_losses=all_test_losses,
-        num_steps=num_steps,
-        details=details,
-        experiment_properties=current_experiment_properties,
-        debug=debug,
-    )
+        # Save to CSV
+        if not debug:
+            os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+            df.to_csv(csv_path, index=False)
+            print(f"Partial results for {name} saved to {csv_path}")
+
+    print(f"Finished all configurations")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Run housing simulation experiment.")
     parser.add_argument("--nb_nodes", type=int, default=10, help="Number of nodes")
-    parser.add_argument("--graph_name", type=str, default="expander", help="Graph name")
+    parser.add_argument(
+        "--graph_name", type=str, default="florentine", help="Graph name"
+    )
     parser.add_argument("--mu", type=float, default=1.0, help="Privacy budget")
     parser.add_argument(
         "--num_repetition",
@@ -640,7 +573,13 @@ def main():
         "--nb_batches",
         type=int,
         default=16,
-        help="Number of (big) batches per node (default: 16)",
+        help="Number of (big) batches per node, processed each iteration (default: 16)",
+    )
+    parser.add_argument(
+        "--nb_micro_batches",
+        type=int,
+        default=1,
+        help="Number of micro batches to process in an iteration (default: 1)",
     )
     parser.add_argument(
         "--debug",
@@ -659,6 +598,12 @@ def main():
         action="store_true",
         default=False,
         help="Only compute the necessary matrix factorizations, and make sure they are in the cache for later simulations.",
+    )
+    parser.add_argument(
+        "--hyperparameters",
+        action="store_true",
+        default=False,
+        help="Only run the unnoised baseline for hyperparameter tuning.",
     )
     parser.add_argument(
         "--dataset",
@@ -682,6 +627,8 @@ def main():
         recompute=args.recompute,
         pre_cache=args.pre_cache,
         dataset_name=args.dataset,
+        nb_micro_batches=args.nb_micro_batches,
+        nonoise_only=args.hyperparameters,
     )
 
 

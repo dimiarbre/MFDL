@@ -39,16 +39,18 @@ class FEMNIST_tiny_CNN(nn.Module):
         super().__init__()
         torch.manual_seed(seed)
         self.net = nn.Sequential(
-            nn.Conv2d(1, 8, kernel_size=3, padding=1),  # 28x28 -> 28x28
+            nn.Conv2d(1, 16, 3, padding=1),
+            # nn.GroupNorm(4, 16),  # 4 groups for 16 channels → 4 channels per group
             nn.ReLU(),
-            nn.MaxPool2d(2),  # 28x28 -> 14x14
-            nn.Conv2d(8, 16, kernel_size=3, padding=1),  # 14x14 -> 14x14
+            nn.MaxPool2d(2),
+            nn.Conv2d(16, 32, 3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(2),  # 14x14 -> 7x7
+            nn.MaxPool2d(2),
+            nn.GroupNorm(8, 32),
             nn.Flatten(),
-            nn.Linear(16 * 7 * 7, 64),
-            nn.ReLU(),
-            nn.Linear(64, 62),  # FEMNIST: 62 classes
+            nn.Linear(32 * 7 * 7, 62),
+            # nn.ReLU(),
+            # nn.Linear(128, 62),  # FEMNIST: 62 classes
         )
 
     def forward(self, x):
@@ -114,6 +116,21 @@ def to_torch_data(partition):
     return data.TensorDataset(images, labels)
 
 
+def make_batch_sampler_indices(num_samples, nb_batches, seed=None):
+    batch_sizes = [num_samples // nb_batches] * nb_batches
+    for i in range(num_samples % nb_batches):
+        batch_sizes[i] += 1
+    rng = np.random.default_rng(seed)
+    indices = np.arange(num_samples)
+    rng.shuffle(indices)
+    batch_indices = []
+    start = 0
+    for size in batch_sizes:
+        batch_indices.append(indices[start : start + size].tolist())
+        start += size
+    return batch_indices
+
+
 def load_femnist(
     total_nodes,
     test_fraction=0.2,
@@ -149,13 +166,23 @@ def load_femnist(
             random_state=seed,  # , stratify=labels
         )
 
-        train_batch_size = max(1, math.ceil(len(train_imgs) / nb_batches))
-
-        torch_dataloader = data.DataLoader(
-            data.TensorDataset(train_imgs, train_labels),
-            batch_size=train_batch_size,
-            shuffle=True,
+        batch_indices = make_batch_sampler_indices(
+            len(train_imgs), nb_batches, seed=seed
         )
+        train_dataset = data.TensorDataset(train_imgs, train_labels)
+        # batch_sampler = data.BatchSampler(
+        #     batch_indices, batch_size=None, drop_last=False
+        # )
+        torch_dataloader = data.DataLoader(train_dataset, batch_sampler=batch_indices)
+
+        # train_batch_size = max(1, math.ceil(len(train_imgs) / nb_batches))
+
+        # torch_dataloader = data.DataLoader(
+        #     data.TensorDataset(train_imgs, train_labels),
+        #     batch_size=train_batch_size,
+        #     shuffle=True,
+        #     drop_last=False,
+        # )
         train_dataloaders.append(torch_dataloader)
 
         test_datasets.append(data.TensorDataset(test_imgs, test_labels))
@@ -175,11 +202,12 @@ def load_femnist(
 
 def main():
     # Parameters
-    total_nodes = 148
+    total_nodes = 15
     nb_batches = 16
     test_batch_size = 4096
     seed = 42
-    lr = 0.1
+    lr = 0.5
+    epochs = 100
 
     # Load data
     train_dataloaders, test_dataloader = load_femnist(
@@ -222,7 +250,6 @@ def main():
         all_train_dataset, batch_size=2024, shuffle=True
     )
 
-    epochs = 20
     train_losses = []
     for epoch in range(epochs):
         model.train()
@@ -243,7 +270,7 @@ def main():
         avg_loss = running_loss / total
         acc = correct / total
         train_losses.append(avg_loss)
-        print(f"Epoch {epoch+1}/{epochs} - Loss: {avg_loss:.4f} - Acc: {acc:.4f}")
+        print(f"Epoch {epoch+1}/{epochs} - Loss: {avg_loss:.4f} - Acc: {acc*100:.4f}%")
 
     # Plot training loss
     plt.figure()
@@ -252,7 +279,6 @@ def main():
     plt.ylabel("Training Loss")
     plt.grid()
     plt.title("FEMNIST Training Loss")
-    plt.show()
 
     # Evaluate on test set
     model.eval()
@@ -272,6 +298,7 @@ def main():
     test_acc = test_correct / test_total
     print(f"Test Loss: {avg_test_loss:.4f} - Test Acc: {test_acc:.4f}")
 
+    plt.show()
     # # Use Dirichlet partitioner instead of default split_data
     # X_train = train_dataloaders[0].dataset.tensors[0].new_empty(0)
     # y_train = train_dataloaders[0].dataset.tensors[1].new_empty(0, dtype=torch.long)
