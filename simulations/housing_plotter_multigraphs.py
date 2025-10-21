@@ -11,25 +11,28 @@ from plotters import plot_housing_results
 from utils import METHOD_COLORS, METHOD_DISPLAY_NAMES
 
 
-def plot_final_test_loss_vs_epsilon(df, filters, graph_name, dataset_name):
+def plot_final_test_loss_vs_epsilon(
+    df, filters, graph_name, dataset_name, y_axis="test_loss"
+):
     plt.figure(figsize=(8, 5))
 
     means = []
     cis = []
-    epsilons = []
+    mus = []
     unnoised_baseline_mean = None
     unnoised_baseline_ci = None
     baseline_points = []
     ylim_max = 4
     ylim_min = 5e-1
+    if "acc" in y_axis:
+        ylim_max = 1
+        ylim_min = 0
 
-    for epsilon in filters["epsilon"]:
-        # Here, epsilon means 1/sigma (so mu, for mu-GDP guarantees), and is not a proper (epsilon, delta)-DP guarantee.
-        epsilon = float(epsilon)
-        current_df = df[(df["graph_name"] == graph_name) & (df["epsilon"] == epsilon)]
-        assert (
-            not current_df.empty
-        ), f"Empty dataframe for graph {graph_name}, epsilon {epsilon}"
+    for mu in filters["mu"]:
+        # Here, mu means 1/sigma (hence mu-GDP guarantees).
+        mu = float(mu)
+        current_df = df[(df["graph_name"] == graph_name) & (df["mu"] == mu)]
+        assert not current_df.empty, f"Empty dataframe for graph {graph_name}, mu {mu}"
 
         # For each method, compute mean and CI of final test_loss across seeds
         methods = [m for m in METHOD_COLORS if m in current_df["method"].unique()]
@@ -44,7 +47,7 @@ def plot_final_test_loss_vs_epsilon(df, filters, graph_name, dataset_name):
                 loss = method_df[
                     (method_df["dataloader_seed"] == seed)
                     & (method_df["step"] == last_step)
-                ]["test_loss"].values
+                ][y_axis].values
                 if len(loss) > 0:
                     final_losses.append(loss[0])
             if final_losses:
@@ -54,15 +57,15 @@ def plot_final_test_loss_vs_epsilon(df, filters, graph_name, dataset_name):
                 # 95% confidence interval
                 ci = 1.96 * std_loss / np.sqrt(n) if n > 1 else 0
                 if method == "Unnoised baseline":
-                    # Store only once (should be same for all epsilons)
+                    # Store only once (should be same for all mus)
                     if unnoised_baseline_mean is None:
                         unnoised_baseline_mean = mean_loss
                         unnoised_baseline_ci = ci
-                    baseline_points.append((epsilon, mean_loss))
+                    baseline_points.append((mu, mean_loss))
                 else:
-                    means.append((epsilon, method, mean_loss))
-                    cis.append((epsilon, method, ci))
-                    epsilons.append(epsilon)
+                    means.append((mu, method, mean_loss))
+                    cis.append((mu, method, ci))
+                    mus.append(mu)
 
     ordered_methods = [m for m in METHOD_COLORS if m in set([m for _, m, _ in means])]
     for method in ordered_methods:
@@ -70,11 +73,11 @@ def plot_final_test_loss_vs_epsilon(df, filters, graph_name, dataset_name):
             continue
         delta = 1e-6
         method_data = [
-            (solve_epsilon(mu=eps, delta_target=delta), mean, ci)
-            for eps, m, mean in means
+            (solve_epsilon(mu=mu, delta_target=delta), mean, ci)
+            for mu, m, mean in means
             if m == method
             for _, _, ci in [
-                next((c for c in cis if c[0] == eps and c[1] == m), (eps, m, 0))
+                next((c for c in cis if c[0] == mu and c[1] == m), (mu, m, 0))
             ]
         ]
         method_data.sort(key=lambda x: x[0])  # sort by epsilon
@@ -121,7 +124,7 @@ def plot_final_test_loss_vs_epsilon(df, filters, graph_name, dataset_name):
         print(f"Unnoised baseline: {baseline_points}")
 
     plt.xlabel("$\\epsilon$", fontsize=24)
-    plt.ylabel("Final Test Loss", fontsize=24)
+    plt.ylabel(f"Final {y_axis}", fontsize=24)
     plt.legend(fontsize=15, frameon=True, facecolor="white", edgecolor="black")
     plt.tick_params(axis="both", which="major", labelsize=15)
     plt.grid()
@@ -131,7 +134,7 @@ def plot_final_test_loss_vs_epsilon(df, filters, graph_name, dataset_name):
     if ylims[1] > ylim_max:
         plt.ylim(top=ylim_max)
     plt.tight_layout()
-    figpath = f"figures/{dataset_name}/final_test_loss_vs_sigma_multigraphs_graph{graph_name}.pdf"
+    figpath = f"figures/{dataset_name}/final_{y_axis}_vs_epsilon_graph{graph_name}.pdf"
     plt.savefig(figpath)
     print(f"Saved fig to {figpath}")
     # plt.show()
@@ -139,6 +142,7 @@ def plot_final_test_loss_vs_epsilon(df, filters, graph_name, dataset_name):
 
 def main():
     dataset_name = "housing"
+    y_axis = "test_loss"
     graph_names = [
         "florentine",
         "peertube (connex component)",
@@ -148,8 +152,8 @@ def main():
         filters: Dict[str, List] = {
             "graph_name": [graph_name],
             "num_passes": [20],
-            "epsilon": [
-                # 10.0,
+            "mu": [
+                10.0,
                 0.5,
                 0.2,
                 1.0,
@@ -162,7 +166,7 @@ def main():
             "OPTIMAL_DL_MSG",
             "BSR_LOCAL",
             "BSR_BANDED_LOCAL",
-            "OPTIMAL_LOCAL",
+            # "OPTIMAL_LOCAL",
         ]
         if "peertube" in graph_name:
             methods_to_remove.append("ANTIPGD")
@@ -184,6 +188,7 @@ def main():
             filters=filters,
             graph_name=graph_name,
             dataset_name=dataset_name,
+            y_axis=y_axis,
         )
 
     print("Finished plotting")

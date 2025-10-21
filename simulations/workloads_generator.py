@@ -527,6 +527,118 @@ def MF_OPTIMAL_DL(
     return C_optimal
 
 
+def MF_OPTIMAL_DL_variednode(
+    communication_matrix,
+    nb_nodes,
+    nb_steps,
+    nb_epochs,
+    post_average=True,
+    graph_name=None,
+    seed=None,
+    caching=True,
+    verbose=False,
+) -> list[np.ndarray]:
+    """
+    Lazy loader for optimal DL factorization. Caches results to disk for repeated calls.
+
+    Args:
+        communication_matrix: np.ndarray, the communication matrix.
+        nb_nodes: int, number of nodes.
+        nb_steps: int, number of steps.
+        nb_epochs: int, number of epochs.
+        post_average: bool, whether to use post-averaging.
+        graph_name: str, unique name for the graph (required for caching).
+        seed: int, optional seed for uniqueness.
+        caching: bool, optional, default to True: wether to try and save intermediate workloads to cache.
+
+    Returns:
+        C_optimal_allnodes: list(np.array)
+    """
+    cache_dir = f"cache/correlations_matrixes/{graph_name}/nodes{nb_nodes}/steps{nb_steps}/epochs{nb_epochs}/"
+
+    cache_filename = f"OptimalDLLocal_{'PostAVG' if post_average else "Msg"}"
+    if graph_name is None:
+        caching = False
+    elif graph_require_seed(graph_name):
+        if seed is None:
+            caching = False
+        else:
+            cache_filename += f"_seed{seed}"
+
+    if caching:
+        cache_results = []
+        for node in range(nb_nodes):
+            cache_filename_current_node = cache_filename + f"_node{node}"
+            cache_result = get_from_cache(
+                cache_dir=cache_dir,
+                filename=cache_filename_current_node,
+                verbose=verbose,
+            )
+            if cache_result is None:
+                cache_results = []
+                break
+            cache_results.append(cache_result)
+        if len(cache_results) == nb_nodes:
+            if verbose:
+                print(
+                    f"Found all cached results under {cache_dir}, skipping computation"
+                )
+            return cache_results
+
+    # If post_average==True, we want W in the diagonal since we consider the optimization workload (after averaging), wich corresponds to diag(W) @ \tilde(W) in the paper.
+    # If it is false, we instead want \tilde(W) the attacker workload.
+    initial_power = int(post_average)
+
+    dl_workload = build_DL_workload(
+        communication_matrix,
+        nb_steps=nb_steps,
+        initial_power=initial_power,
+        verbose=verbose,
+    )  # nT * nT
+
+    # # Old way of doing it.
+    # pi = get_pi(nb_nodes=nb_nodes, nb_iterations=nb_steps)  # nT * Tn
+    # A = dl_workload @ pi
+
+    pi, pi_inv = get_commutation_reindexing(nb_nodes=nb_nodes, nb_iterations=nb_steps)
+    A = dl_workload[
+        :, pi_inv
+    ]  # Equivalent to the previous A = dl_workload @ pi, see the tests if you want to make sure.
+
+    all_C_optimal = []
+
+    for node in range(nb_nodes):
+        Ai = A[:, nb_steps * node : nb_steps * (node + 1)]
+        gram_workload = Ai.T @ Ai
+
+        gram_workload_permuted = optimal_factorization._permute_lower_triangle(
+            gram_workload
+        )
+        is_positive_definite = utils.check_positive_definite(gram_workload_permuted)
+
+        if is_positive_definite:
+            surrogate_workload = np.linalg.cholesky(gram_workload_permuted)
+        else:
+            raise NotImplementedError("Non-positive definite Gram workload")
+
+        C_optimal = optimal_factorization.get_optimal_factorization(
+            surrogate_workload, nb_steps=nb_steps, nb_epochs=nb_epochs, verbose=verbose
+        )
+        all_C_optimal.append(C_optimal)
+
+        # Save to cache
+        if caching:
+            cache_filename_current_node = cache_filename + f"_node{node}"
+            save_to_cache(
+                cache_dir=cache_dir,
+                filename=cache_filename_current_node,
+                matrix=C_optimal,
+                verbose=verbose,
+            )
+
+    return all_C_optimal
+
+
 def MF_OPTIMAL_local(
     communication_matrix,
     nb_nodes,

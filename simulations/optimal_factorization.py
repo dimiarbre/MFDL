@@ -179,7 +179,9 @@ class MatrixFactorizer:
             Z = self.lbfgs_direction(X, dX, X1, dX1)
             X1 = X
             dX1 = dX
-        print(f"\nFactorization did not finish! Aborting after {iters} iteration....")
+        raise RuntimeError(
+            f"\nFactorization did not finish! Aborting after {iters} iteration...."
+        )
         return X
 
     def get_factorization(self, gram_matrix):

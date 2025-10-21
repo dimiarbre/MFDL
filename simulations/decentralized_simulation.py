@@ -135,7 +135,7 @@ def average_step(graph, models):
 def run_decentralized_training(
     graph: nx.Graph,
     num_steps: int,
-    C: np.ndarray,
+    C: np.ndarray | list[np.ndarray],
     mu: float,
     micro_batches_per_step: int,
     trainloaders: list[data.DataLoader],
@@ -151,6 +151,10 @@ def run_decentralized_training(
     num_nodes = graph.number_of_nodes()
     # Ensure all models start from the same initial weights by seeding before each model creation
     models = []
+    if isinstance(C, list):
+        C_list = C
+    else:
+        C_list = [C for _ in range(num_nodes)]
     for _ in range(num_nodes):
         model = GradSampleModule(model_initializer(seed)).to(device)
         models.append(model)
@@ -162,14 +166,14 @@ def run_decentralized_training(
 
     # optimizers = [optim.Adam(models[i].parameters(), lr=1e-2) for i in range(num_nodes)]
     optimizers = []
-    for i in range(num_nodes):
+    for i, C_local in enumerate(C_list):
         # We use the effective batch size for the DP guarantees.
         batch_size = min([X_batch.size(0) for X_batch, _ in trainloaders[i]])
         assert batch_size is not None, "Batch size should not be None"
         optimizers.append(
             MFDLSGD(
                 models[i].parameters(),
-                C=C,
+                C=C_local,
                 participation_interval=participations_intervals[i],
                 noise_seed=seed,
                 lr=lr,
@@ -337,12 +341,19 @@ def run_simulation(
     )
     name, C = args
     print(f"Running simulation for {name} (PID: {os.getpid()})")
-    sens = compute_sensitivity(
-        C,
-        participation_interval=nb_batches,
-        nb_steps=num_steps,
-    )
-    print(f"sens²(C_{name}) = {sens**2}")
+    is_heterogeneous = isinstance(C, list)
+    if is_heterogeneous:
+        assert len(C) == n
+        print(
+            f"Sensitivities²: {[compute_sensitivity(C_local, participation_interval=nb_batches, nb_steps=num_steps)**2 for C_local in C]}"
+        )
+    else:
+        sens = compute_sensitivity(
+            C,
+            participation_interval=nb_batches,
+            nb_steps=num_steps,
+        )
+        print(f"sens²(C_{name}) = {sens**2}")
 
     start_time = time.time()
     _, test_losses, train_losses, test_accs = run_decentralized_training(
@@ -416,6 +427,7 @@ def run_experiment(
 
     df = pd.DataFrame({})
     # Check if results already exist and skip if not recomputing
+    print(f"Trying to access {csv_path}")
     if (not recompute) and os.path.exists(csv_path):
         df = pd.read_csv(csv_path)
 
@@ -450,6 +462,17 @@ def run_experiment(
             verbose=True,
         ),
         "OPTIMAL_DL_POSTAVG": lambda: workloads_generator.MF_OPTIMAL_DL(
+            communication_matrix=communication_matrix,
+            nb_nodes=nb_nodes,
+            nb_steps=num_steps,
+            nb_epochs=num_repetition,
+            post_average=True,
+            graph_name=graph_name,
+            seed=seed,
+            caching=True,
+            verbose=True,
+        ),
+        "OPTIMAL_DL_LOCALCOR": lambda: workloads_generator.MF_OPTIMAL_DL_variednode(
             communication_matrix=communication_matrix,
             nb_nodes=nb_nodes,
             nb_steps=num_steps,

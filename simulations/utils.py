@@ -19,9 +19,10 @@ METHOD_DISPLAY_NAMES = {
     "ANTIPGD": "ANTIPGD",
     "BSR_LOCAL": "SR (Nikita \\& Lampert, 2024)",  # Banded SR, is never used, and thus named wrongly.
     "BSR_BANDED_LOCAL": "BSR (Nikita \\& Lampert, 2024)",  # Banded SR, is never used, and thus named wrongly.
-    "OPTIMAL_LOCAL": "MF (Choquette-Choo, 2023)",
+    "OPTIMAL_LOCAL": "D-MF",
     "OPTIMAL_DL_MSG": "Optimal (Message Loss)",
     "OPTIMAL_DL_POSTAVG": "MAFALDA-SGD (Ours)",
+    "OPTIMAL_DL_LOCALCOR": "MAFALDA-L-SGD (Ours)",
 }
 
 # Dictionary to assign colors to each method
@@ -31,7 +32,7 @@ METHOD_COLORS = {
     "ANTIPGD": "#ff7f0e",
     "SR (Nikita \\& Lampert, 2024)": "#e377c2",
     "BSR (Nikita \\& Lampert, 2024)": "#8c564b",
-    "MF (Choquette-Choo, 2023)": "#2ca02c",
+    "D-MF": "#2ca02c",
     "Optimal (Message Loss)": "#17becf",
     "MAFALDA-SGD (Ours)": "#d62728",
 }
@@ -42,7 +43,7 @@ METHOD_MARKERS = {
     "ANTIPGD": "*",
     "SR (Nikita \\& Lampert, 2024)": "^",
     "BSR (Nikita \\& Lampert, 2024)": "H",
-    "MF (Choquette-Choo, 2023)": "<",
+    "D-MF": "<",
     "Optimal (Message Loss)": "X",
     "MAFALDA-SGD (Ours)": ">",
 }
@@ -57,6 +58,7 @@ GraphName = Literal[
     "florentine",
     "ego",
     "chain",
+    "hypercube",
     "peertube",
     "peertube (connex component)",
     "regular",
@@ -181,6 +183,18 @@ def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
             # 5 regular graph
             # TODO: Allow user to chose the degree
             G = nx.random_regular_graph(5, n, seed)
+        case "hypercube":
+            if n <= 0:
+                raise ValueError(f"Hypercube graph requires n to be >= 1, got n={n}")
+            # use log2 to check that n is a power of two
+            log2_n = np.log2(n)
+            if abs(round(log2_n) - log2_n) > 1e-12:
+                raise ValueError(
+                    f"Hypercube graph requires n to be a power of two, got n={n}"
+                )
+            # compute dimension d such that n == 2**d
+            d = int(round(log2_n))
+            G = nx.hypercube_graph(d)
         case _:
             raise ValueError(f"Invalid graph name {name}")
     G = nx.convert_node_labels_to_integers(G)
@@ -202,6 +216,7 @@ def graph_require_seed(graph_name: GraphName) -> bool:
         "chain",
         "peertube",
         "peertube (connex component)",
+        "hypercube",
     ]:
         return False
     elif graph_name in ["erdos", "expander", "regular"]:

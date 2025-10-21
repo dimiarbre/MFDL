@@ -6,6 +6,7 @@ matplotlib
 seaborn
 numpy
 pytest
+pytest-benchmark
 opacus
 SciencePlots
 fedivertex

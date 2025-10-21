@@ -21,6 +21,7 @@ FactorizationName = Literal[
     "OPTIMAL_LOCAL",
     "OPTIMAL_DL_MSG",
     "OPTIMAL_DL_POSTAVG",
+    "OPTIMAL_DL_LOCALCORRELATION",
 ]
 
 POSSIBLE_FACTORIZATION: list[FactorizationName] = [
@@ -31,6 +32,7 @@ POSSIBLE_FACTORIZATION: list[FactorizationName] = [
     "OPTIMAL_LOCAL",
     "OPTIMAL_DL_MSG",
     "OPTIMAL_DL_POSTAVG",
+    "OPTIMAL_DL_LOCALCORRELATION",
 ]
 
 
@@ -81,6 +83,17 @@ def workload_wrapper(
             )
         case "OPTIMAL_DL_POSTAVG":
             return workloads_generator.MF_OPTIMAL_DL(
+                communication_matrix=communication_matrix,
+                nb_nodes=nb_nodes,
+                nb_steps=nb_iterations,
+                nb_epochs=nb_epochs,
+                post_average=True,
+                graph_name=graph_name,
+                seed=seed,
+                verbose=verbose,
+            )
+        case "OPTIMAL_DL_LOCALCORRELATION":
+            return workloads_generator.MF_OPTIMAL_DL_variednode(
                 communication_matrix=communication_matrix,
                 nb_nodes=nb_nodes,
                 nb_steps=nb_iterations,
@@ -182,21 +195,24 @@ def run_experiment(
         )
         elapsed_time = time.time() - start_time
         # plotters.plot_factorization(np.linalg.pinv(C), factorization_name + "+ $C^+$")
-        sens = workloads_generator.compute_sensitivity(
-            C=C, participation_interval=participation_interval, nb_steps=nb_steps
-        )
-        loss_message = evaluate_loss(
-            gram_message_workload,
-            C,
-            participation_interval=participation_interval,
-            nb_iterations=nb_steps,
-        )
-        loss_optimization = evaluate_loss(
-            gram_optimization_workload,
-            C,
-            participation_interval=participation_interval,
-            nb_iterations=nb_steps,
-        )
+        if isinstance(C, list):
+            raise NotImplementedError("Different local correlation not handled yet")
+        else:
+            sens = workloads_generator.compute_sensitivity(
+                C=C, participation_interval=participation_interval, nb_steps=nb_steps
+            )
+            loss_message = evaluate_loss(
+                gram_message_workload,
+                C,
+                participation_interval=participation_interval,
+                nb_iterations=nb_steps,
+            )
+            loss_optimization = evaluate_loss(
+                gram_optimization_workload,
+                C,
+                participation_interval=participation_interval,
+                nb_iterations=nb_steps,
+            )
         current_line = {
             "factorization_name": factorization_name,
             "loss_optimization": loss_optimization,

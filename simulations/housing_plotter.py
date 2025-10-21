@@ -76,6 +76,8 @@ def load_decentralized_simulation_data(
         if not fname.endswith(".csv"):
             continue
         try:
+            if not fname.startswith("simulation_"):
+                continue
             params = extract_params_from_filename(fname)
         except ValueError:
             continue
@@ -203,7 +205,7 @@ def plot_housing_results_with_ci(
         perc_improvement = (a_vals - b_vals) / a_vals * 100
         avg_improvement = np.mean(perc_improvement)
         print(
-            f"[epsilon ={filename.split("epsilon")[-1]}] Average percentage improvement of '{method_b}' over '{method_a}' for last 50 steps: {avg_improvement:.2f}%"
+            f"[mu ={filename.split("mu")[-1]}] Average percentage improvement of '{method_b}' over '{method_a}' for last 50 steps: {avg_improvement:.2f}%"
         )
     else:
         print(
@@ -246,26 +248,28 @@ def plot_housing_results_with_ci(
 
 
 def main():
-    dataset_name = "femnist"
-    loss_attr = "test_acc"
+    dataset_name = "housing"
+    loss_attr = "test_loss"
     # Only load files with eps=0.5 and seed=421
     filters: Dict[str, List] = {
-        "graph_name": ["ego"],
+        "graph_name": ["peertube (connex component)"],
         "num_passes": [20],
         "mu": [
             10.0,
             0.5,
             0.2,
-            # 1.0,
+            1.0,
             0.1,
             2.0,
+            5.0,
         ],  # Remember to put floats here (1.0,...)
+        # "lr": [5.0],
     }
     methods_to_remove = [
         "OPTIMAL_DL_MSG",
         "BSR_LOCAL",
         "BSR_BANDED_LOCAL",
-        "OPTIMAL_LOCAL",
+        # "OPTIMAL_LOCAL",
     ]
 
     df = load_decentralized_simulation_data(
@@ -307,7 +311,7 @@ def main():
             debug=False,
             log_scale=False,
             min_max=False,
-            filename=f"{dataset_name}_test_loss_ci_plot_mu{mu}",
+            filename=f"{dataset_name}_{filters["graph_name"][0]}_{loss_attr}_ci_plot_mu{mu}",
             dataset_name=dataset_name,
         )
 
