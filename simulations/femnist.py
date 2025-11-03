@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.utils.data as data
-from data_utils import split_data
+from data_utils import make_batch_sampler_indices
 from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import GroupedNaturalIdPartitioner
 from sklearn.model_selection import train_test_split
@@ -116,21 +116,6 @@ def to_torch_data(partition):
     return data.TensorDataset(images, labels)
 
 
-def make_batch_sampler_indices(num_samples, nb_batches, seed=None):
-    batch_sizes = [num_samples // nb_batches] * nb_batches
-    for i in range(num_samples % nb_batches):
-        batch_sizes[i] += 1
-    rng = np.random.default_rng(seed)
-    indices = np.arange(num_samples)
-    rng.shuffle(indices)
-    batch_indices = []
-    start = 0
-    for size in batch_sizes:
-        batch_indices.append(indices[start : start + size].tolist())
-        start += size
-    return batch_indices
-
-
 def load_femnist(
     total_nodes,
     test_fraction=0.2,
@@ -139,8 +124,7 @@ def load_femnist(
     seed=421,
     data_dir="./data",
 ):
-    g = torch.Generator()
-    g.manual_seed(seed)
+    rng = np.random.default_rng(seed)
     fds = FederatedDataset(
         dataset="flwrlabs/femnist",
         partitioners={
@@ -166,9 +150,7 @@ def load_femnist(
             random_state=seed,  # , stratify=labels
         )
 
-        batch_indices = make_batch_sampler_indices(
-            len(train_imgs), nb_batches, seed=seed
-        )
+        batch_indices = make_batch_sampler_indices(len(train_imgs), nb_batches, rng=rng)
         train_dataset = data.TensorDataset(train_imgs, train_labels)
         # batch_sampler = data.BatchSampler(
         #     batch_indices, batch_size=None, drop_last=False
@@ -192,7 +174,6 @@ def load_femnist(
         test_dataset,
         batch_size=test_batch_size,
         shuffle=False,
-        generator=g,
         pin_memory=True,
         num_workers=4,
     )

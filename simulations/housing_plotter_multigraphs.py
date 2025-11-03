@@ -8,7 +8,7 @@ import pandas as pd
 from epsilon_computation import solve_epsilon
 from housing_plotter import *
 from plotters import plot_housing_results
-from utils import METHOD_COLORS, METHOD_DISPLAY_NAMES
+from utils import METHOD_COLORS, METHOD_DISPLAY_NAMES, METHOD_LINESTYLES
 
 
 def plot_final_test_loss_vs_epsilon(
@@ -94,6 +94,7 @@ def plot_final_test_loss_vs_epsilon(
             color=color,
             marker="o",
             capsize=4,
+            linestyle=METHOD_LINESTYLES.get(method, "-"),
         )
         # Print method and points
         print(f"{method}: {list(zip(epsilons_plot, method_means))}")
@@ -147,19 +148,21 @@ def main():
         "florentine",
         "peertube (connex component)",
         "ego",
+        "chain",
+        "hypercube",
     ]
     for graph_name in graph_names:
         filters: Dict[str, List] = {
             "graph_name": [graph_name],
             "num_passes": [20],
             "mu": [
-                10.0,
-                0.5,
-                0.2,
-                1.0,
                 0.1,
+                0.2,
+                0.5,
+                1.0,
                 2.0,
                 5.0,
+                10.0,
             ],  # Remember to put floats here (1.0,...)
         }
         methods_to_remove = [
@@ -176,7 +179,9 @@ def main():
             methods_to_remove=methods_to_remove,
             only_last_step=True,
         )
-        assert not df.empty, "Empty dataframe, check you used floats in epsilon"
+        assert (
+            not df.empty
+        ), "Empty dataframe, check you used floats in mu and lr filters"
 
         # Rename on plots:
         for method_source, method_display_name in METHOD_DISPLAY_NAMES.items():

@@ -35,6 +35,7 @@ METHOD_COLORS = {
     "D-MF": "#2ca02c",
     "Optimal (Message Loss)": "#17becf",
     "MAFALDA-SGD (Ours)": "#d62728",
+    "MAFALDA-L-SGD (Ours)": "#bcbd22",
 }
 
 METHOD_MARKERS = {
@@ -46,7 +47,13 @@ METHOD_MARKERS = {
     "D-MF": "<",
     "Optimal (Message Loss)": "X",
     "MAFALDA-SGD (Ours)": ">",
+    "MAFALDA-L-SGD (Ours)": "d",
 }
+
+METHOD_LINESTYLES = {
+    "MAFALDA-L-SGD (Ours)": "--",
+}
+
 GraphName = Literal[
     "expander",
     "empty",
@@ -301,6 +308,24 @@ def time_execution(func):
         return result
 
     return wrapper
+
+
+def clean_csv_filename(filename: str) -> str:
+    """Cleans a string to be used as a CSV filename by replacing or removing problematic characters.
+
+    Args:
+        filename: The original filename string.
+    """
+    to_replace = {
+        "peertube (connex component)": "peertubeconnexcomponent",
+    }
+    cleaned_filename = filename
+    for old, new in to_replace.items():
+        cleaned_filename = cleaned_filename.replace(old, new)
+    cleaned_filename = (
+        cleaned_filename.replace(" ", "_").replace("/", "-").replace("\\", "-")
+    )
+    return cleaned_filename
 
 
 def main():

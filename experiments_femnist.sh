@@ -8,7 +8,8 @@
 # seeds=(421 422 423 424 425 426 427 428 429 430)
 
 num_repetitions=(20)
-mu_list=( 1.0 0.1 10.0 0.5 2.0 0.2 5.0)
+# mu_list=(1.0 0.1 10.0 0.5 2.0 0.2 5.0)
+mu_list=(0.1 0.5 1.0 2.0 3.0 4.0 5.0 7.0 8.0 9.0 10.0 15.0 20.0) # Only use this for florentine?
 # nb_nodes_list=(15)
 # graph_names=(florentine)
 
@@ -34,6 +35,7 @@ recompute_flag=""
 pre_cache_flag=""
 run_with="local"
 hyperparameter_flag="--use_optimals"
+skip_confirmation=false
 for arg in "$@"; do
     if [[ "$arg" == "--recompute" ]]; then
         recompute_flag="--recompute"
@@ -60,6 +62,8 @@ for arg in "$@"; do
         mu_list=(1)
         seeds=(421)
         lrs=(1 0.01 0.1 0.001 0.05 0.005 0.02 2 5 10 25 50)
+    elif [[ "$arg" == "-y" ]]; then
+        skip_confirmation=true
     else
         echo "Error: Unrecognized argument '$arg'" >&2
         exit 1
@@ -98,10 +102,12 @@ echo "recompute_flag: $recompute_flag"
 echo "pre_cache_flag: $pre_cache_flag"
 echo "Total configurations: $total_configs"
 echo "Proceed with these parameters? (y/n)"
-read -r answer
-if [[ "$answer" != "y" ]]; then
-    echo "Aborted by user."
-    exit 0
+if ! $skip_confirmation; then
+    read -r answer
+    if [[ "$answer" != "y" ]]; then
+        echo "Aborted by user."
+        exit 0
+    fi
 fi
 
 

@@ -1,42 +1,47 @@
 import math
 
+import numpy as np
 import torch
 import torch.utils.data as data
 
 
-def split_data(
-    X, y, total_nodes: int, nb_batches, generator: torch.Generator
-) -> list[data.DataLoader]:
-    idx = torch.arange(len(X))
+def make_batch_sampler_indices(num_samples, nb_batches, rng):
+    batch_sizes = [num_samples // nb_batches] * nb_batches
+    for i in range(num_samples % nb_batches):
+        batch_sizes[i] += 1
+    indices = np.arange(num_samples)
+    rng.shuffle(indices)
+    batch_indices = []
+    start = 0
+    for size in batch_sizes:
+        batch_indices.append(indices[start : start + size].tolist())
+        start += size
+    return batch_indices
+
+
+def split_data(X, y, total_nodes: int, nb_batches, rng) -> list[data.DataLoader]:
+    idx = np.arange(len(X))
+    rng.shuffle(idx)
 
     dataloaders = []
     for node_id in range(total_nodes):
         # Simple partition: split by node_id
         node_idx = idx[node_id::total_nodes]
         ds = data.TensorDataset(X[node_idx], y[node_idx])
-        batch_size = max(1, math.ceil(len(X) / nb_batches))
+
+        batch_indices = make_batch_sampler_indices(
+            len(ds), nb_batches=nb_batches, rng=rng
+        )
+
         dataloaders.append(
             data.DataLoader(
                 ds,
-                batch_size=batch_size,
-                shuffle=True,
-                generator=generator,
+                batch_sampler=batch_indices,
             )
         )
-    # Ensure all dataloaders have the same number of batches
-    min_len = min(len(dl) for dl in dataloaders)
-    for i, dl in enumerate(dataloaders):
-        if len(dl) > min_len:
-            # Remove extra data so that this dataloader has min_len batches
-            ds = dl.dataset
-            batch_size = dl.batch_size
-            keep_n = min_len * batch_size
-            dataloaders[i] = data.DataLoader(
-                data.TensorDataset(ds.tensors[0][:keep_n], ds.tensors[1][:keep_n]),
-                batch_size=batch_size,
-                shuffle=True,
-                generator=generator,
-                # pin_memory=True,
-                # num_workers=4,
-            )
+
+    for node_id, dataloader in enumerate(dataloaders):
+        assert (
+            len(dataloader) == nb_batches
+        ), f"Number of batches generated {len(dataloader)} does not match expected number of batches {nb_batches} for node {node_id}"
     return dataloaders

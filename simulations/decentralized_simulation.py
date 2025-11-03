@@ -146,6 +146,7 @@ def run_decentralized_training(
     lr: float = 1e-1,
     device: torch.device = torch.device("cpu"),
     seed: int = 421,
+    always_eval: bool = False,
 ):
     nb_resets = 0
     num_nodes = graph.number_of_nodes()
@@ -238,7 +239,7 @@ def run_decentralized_training(
             train_losses[node_id].append(loss)
 
         # Compute the test loss only every test_eval_interval steps
-        if (step + 1) % test_eval_interval == 0 or step == num_steps - 1:
+        if always_eval or (step + 1) % test_eval_interval == 0 or step == num_steps - 1:
             print(f"Evaluating test set:")
             step_test_losses, step_test_acc = evaluate_models(
                 models, testloader, device, loss_function, False, is_testset=True
@@ -326,6 +327,7 @@ def run_simulation(
     dataloader_seed,
     lr: float,
     nb_batches,
+    always_eval: bool,
 ):
     np.random.seed(dataloader_seed)
     torch.manual_seed(dataloader_seed)
@@ -370,6 +372,7 @@ def run_simulation(
         test_eval_interval=nb_batches,  # One eval test/epoch
         device=device,
         seed=dataloader_seed,
+        always_eval=always_eval,
     )
     elapsed_time = time.time() - start_time
     print(f"{name}: Training took {elapsed_time:.2f} seconds.")
@@ -391,6 +394,7 @@ def run_experiment(
     recompute: bool = False,
     pre_cache: bool = False,
     nonoise_only=False,
+    always_eval: bool = False,
 ):
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
     # device_name = "cpu"
@@ -517,6 +521,7 @@ def run_experiment(
         "dataloader_seed": seed,
         "lr": lr,
         "nb_batches": nb_big_batches,
+        "always_eval": always_eval,
     }
     run_simulation_partial = functools.partial(run_simulation, **run_sim_args)
 
@@ -634,6 +639,12 @@ def main():
         default="housing",
         help="Dataset name. Should be `housing` or `femnist`",
     )
+    parser.add_argument(
+        "--always_eval",
+        action="store_true",
+        default=False,
+        help="Always evaluate test set at each step, instead of every epoch.",
+    )
 
     args = parser.parse_args()
 
@@ -652,6 +663,7 @@ def main():
         dataset_name=args.dataset,
         nb_micro_batches=args.nb_micro_batches,
         nonoise_only=args.hyperparameters,
+        always_eval=args.always_eval,
     )
 
 

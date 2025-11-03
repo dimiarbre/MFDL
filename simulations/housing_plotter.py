@@ -7,7 +7,12 @@ import numpy as np
 import pandas as pd
 from plotters import plot_housing_results
 from scipy.stats import t
-from utils import METHOD_COLORS, METHOD_DISPLAY_NAMES
+from utils import (
+    METHOD_COLORS,
+    METHOD_DISPLAY_NAMES,
+    METHOD_LINESTYLES,
+    clean_csv_filename,
+)
 
 # Map from the name stored in filenames to the name in the columns.
 PARAM_MAP = {
@@ -179,7 +184,13 @@ def plot_housing_results_with_ci(
         all_results_df = pd.concat([all_results_df, results_df], ignore_index=True)
 
         color = METHOD_COLORS[method]
-        ax.plot(computed_steps, means, label=method, color=color)
+        ax.plot(
+            computed_steps,
+            means,
+            label=method,
+            color=color,
+            linestyle=METHOD_LINESTYLES.get(method, "-"),
+        )
         ax.fill_between(
             computed_steps,
             means_np - ci95s_np,
@@ -205,7 +216,7 @@ def plot_housing_results_with_ci(
         perc_improvement = (a_vals - b_vals) / a_vals * 100
         avg_improvement = np.mean(perc_improvement)
         print(
-            f"[mu ={filename.split("mu")[-1]}] Average percentage improvement of '{method_b}' over '{method_a}' for last 50 steps: {avg_improvement:.2f}%"
+            f"[mu={filename.split("mu")[-1]}] Average percentage improvement of '{method_b}' over '{method_a}' for last 50 steps: {avg_improvement:.2f}%"
         )
     else:
         print(
@@ -236,6 +247,7 @@ def plot_housing_results_with_ci(
     plt.tight_layout()
     if filename == "":
         filename = f"{dataset_name}_{loss_attr}_ci_plot"
+    filename = clean_csv_filename(filename=filename)
     csv_path = f"results/{dataset_name}_data/{filename}.csv"
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
     all_results_df.to_csv(csv_path)
@@ -251,69 +263,77 @@ def main():
     dataset_name = "housing"
     loss_attr = "test_loss"
     # Only load files with eps=0.5 and seed=421
-    filters: Dict[str, List] = {
-        "graph_name": ["peertube (connex component)"],
-        "num_passes": [20],
-        "mu": [
-            10.0,
-            0.5,
-            0.2,
-            1.0,
-            0.1,
-            2.0,
-            5.0,
-        ],  # Remember to put floats here (1.0,...)
-        # "lr": [5.0],
-    }
-    methods_to_remove = [
-        "OPTIMAL_DL_MSG",
-        "BSR_LOCAL",
-        "BSR_BANDED_LOCAL",
-        # "OPTIMAL_LOCAL",
+    graph_names = [
+        "florentine",
+        "chain",
+        "hypercube",
+        "ego",
+        "peertube (connex component)",
     ]
+    for graph_name in graph_names:
+        filters: Dict[str, List] = {
+            "graph_name": [graph_name],
+            "num_passes": [20],
+            "mu": [
+                10.0,
+                0.5,
+                0.2,
+                1.0,
+                0.1,
+                2.0,
+                5.0,
+            ],  # Remember to put floats here (1.0,...)
+            "lr": [0.1],
+        }
+        methods_to_remove = [
+            "OPTIMAL_DL_MSG",
+            "BSR_LOCAL",
+            "BSR_BANDED_LOCAL",
+            # "OPTIMAL_LOCAL",
+        ]
 
-    df = load_decentralized_simulation_data(
-        param_filters=filters,
-        methods_to_remove=methods_to_remove,
-        base_dir=f"results/{dataset_name}",
-    )
-    assert not df.empty, "Empty dataframe, check you used floats in mu"
-
-    for mu in filters["mu"]:
-        mu = float(mu)
-        current_df = df[df["mu"] == mu]
-
-        # Ensures we are on an unique setting in all the experiments
-        for _, param in PARAM_MAP.items():
-            if "seed" not in param:  # Allow seeding arguments.
-                assert (
-                    len(current_df[param].unique()) == 1
-                ), f"Got multiple values for parameter {param}: {current_df[param].unique()}"
-
-        # df = df[df["method"] != "LDP"]
-        if mu < 0.5:  # Remove them from the plot as they don't converge.
-            current_df = current_df[current_df["method"] != "ANTIPGD"]
-            current_df = current_df[current_df["method"] != "BSR_BANDED_LOCAL"]
-
-        # Rename on plots:
-        current_df = current_df.copy()
-        for method_source, method_display_name in METHOD_DISPLAY_NAMES.items():
-            current_df["method"] = current_df["method"].replace(
-                method_source, method_display_name
-            )
-
-        assert not current_df.empty, "Empty dataframe, consider relaxing filters."
-
-        # Usage:
-        plot_housing_results_with_ci(
-            current_df,
-            loss_attr=loss_attr,
-            debug=False,
-            log_scale=False,
-            min_max=False,
-            filename=f"{dataset_name}_{filters["graph_name"][0]}_{loss_attr}_ci_plot_mu{mu}",
-            dataset_name=dataset_name,
+        df = load_decentralized_simulation_data(
+            param_filters=filters,
+            methods_to_remove=methods_to_remove,
+            base_dir=f"results/{dataset_name}",
         )
+        assert not df.empty, "Empty dataframe, check you used floats in mu"
+
+        for mu in sorted(filters["mu"]):
+            mu = float(mu)
+            current_df = df[df["mu"] == mu]
+
+            # Ensures we are on an unique setting in all the experiments
+            for _, param in PARAM_MAP.items():
+                if "seed" not in param:  # Allow seeding arguments.
+                    assert (
+                        len(current_df[param].unique()) == 1
+                    ), f"Got multiple values for parameter {param}: {current_df[param].unique()}"
+
+            # df = df[df["method"] != "LDP"]
+            if mu < 0.5:  # Remove them from the plot as they don't converge.
+                current_df = current_df[current_df["method"] != "ANTIPGD"]
+                current_df = current_df[current_df["method"] != "BSR_BANDED_LOCAL"]
+
+            # Rename on plots:
+            current_df = current_df.copy()
+            for method_source, method_display_name in METHOD_DISPLAY_NAMES.items():
+                current_df["method"] = current_df["method"].replace(
+                    method_source, method_display_name
+                )
+
+            assert not current_df.empty, "Empty dataframe, consider relaxing filters."
+
+            # Usage:
+            plot_housing_results_with_ci(
+                current_df,
+                loss_attr=loss_attr,
+                debug=False,
+                log_scale=False,
+                min_max=False,
+                filename=f"{dataset_name}_{graph_name}_{loss_attr}_ci_plot_mu{mu}",
+                dataset_name=dataset_name,
+            )
 
     print("Finished plotting")
 

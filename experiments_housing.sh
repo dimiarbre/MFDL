@@ -6,7 +6,7 @@
 # seeds=(421 422 423 424 425 426 427 428 429 430)
 
 num_repetitions=(20)
-mu=(1 0.1 10 0.5 2 0.2 5)
+mu_list=(1 0.1 10 0.5 2 0.2 5)
 
 # nb_nodes_list=(15)
 # graph_names=(florentine)
@@ -25,6 +25,8 @@ seeds=(421 422 423 424 425 426 427 428 429 430 431 432 433 434 435 436 437 438 4
 max_jobs=1
 recompute_flag=""
 pre_cache_flag=""
+skip_confirmation=false
+always_eval_flag=""
 for arg in "$@"; do
     if [[ "$arg" == "--recompute" ]]; then
         recompute_flag="--recompute"
@@ -34,6 +36,15 @@ for arg in "$@"; do
     elif [[ "$arg" == "--graph=florentine" ]]; then
         nb_nodes_list=(15)
         graph_names=("florentine")
+    elif [[ "$arg" == "--graph=chain" ]]; then
+        nb_nodes_list=(128)
+        graph_names=("chain")
+    elif [[ "$arg" == "--graph=hypercube" ]]; then
+        nb_nodes_list=(128)
+        graph_names=("hypercube")
+    elif [[ "$arg" == "--graph=star" ]]; then
+        nb_nodes_list=(128)
+        graph_names=("star")
     elif [[ "$arg" == "--graph=ego" ]]; then
         nb_nodes_list=(148)
         graph_names=("ego")
@@ -42,6 +53,10 @@ for arg in "$@"; do
         graph_names=("peertube (connex component)")
     elif [[ "$arg" == --threads=* ]]; then
         max_jobs="${arg#--threads=}"
+    elif [[ "$arg" == "-y" ]]; then
+        skip_confirmation=true
+    elif [[ "$arg" == "--always_eval" ]]; then
+        always_eval_flag="--always_eval"
     else
         echo "Error: Unrecognized argument '$arg'" >&2
         exit 1
@@ -52,7 +67,7 @@ done
 total_configs=0
 for num_repetition in "${num_repetitions[@]}"; do
     for nb_nodes in "${nb_nodes_list[@]}"; do
-        for mu in "${mu[@]}"; do
+        for mu in "${mu_list[@]}"; do
             for graph_name in "${graph_names[@]}"; do
                 for lr in "${lrs[@]}"; do
                     for seed in "${seeds[@]}"; do
@@ -64,7 +79,28 @@ for num_repetition in "${num_repetitions[@]}"; do
     done
 done
 
+echo "num_repetitions: ${num_repetitions[@]}"
+echo "nb_nodes_list: ${nb_nodes_list[@]}"
+echo "mu_list: ${mu_list[@]}"
+echo "graph_names: ${graph_names[@]}"
+echo "lrs: ${lrs[@]}"
+echo "micro_batches_per_iteration: ${micro_batches_per_iteration[@]}"
+echo "seeds: ${seeds[@]}"
+echo "max_jobs: $max_jobs"
+echo "run_with: $run_with"
+echo "hyperparameter_flag: $hyperparameter_flag"
+echo "recompute_flag: $recompute_flag"
+echo "always_eval: $always_eval_flag"
+echo "pre_cache_flag: $pre_cache_flag"
 echo "Total configurations: $total_configs"
+echo "Proceed with these parameters? (y/n)"
+if ! $skip_confirmation; then
+    read -r answer
+    if [[ "$answer" != "y" ]]; then
+        echo "Aborted by user."
+        exit 0
+    fi
+fi
 
 current_config=0
 
@@ -79,13 +115,13 @@ trap 'echo "Killing all child jobs..."; for pgid in "${pids[@]}"; do kill -- -$p
 start_time=$(date +%s)
 for num_repetition in "${num_repetitions[@]}"; do
     for nb_nodes in "${nb_nodes_list[@]}"; do
-        for mu in "${mu[@]}"; do
+        for mu in "${mu_list[@]}"; do
             for graph_name in "${graph_names[@]}"; do
                 for lr in "${lrs[@]}"; do
                     for seed in "${seeds[@]}"; do
                         current_config=$((current_config + 1))
                         echo "Running configuration $current_config / $total_configs"
-                        cmd=(python simulations/decentralized_simulation.py --nb_nodes $nb_nodes --lr $lr --num_repetition $num_repetition --nb_batches 16 --mu $mu --graph_name "$graph_name" --use_optimals $recompute_flag $pre_cache_flag --dataloader_seed $seed --dataset housing)
+                        cmd=(python simulations/decentralized_simulation.py --nb_nodes $nb_nodes --lr $lr --num_repetition $num_repetition --nb_batches 16 --mu $mu --graph_name "$graph_name" --use_optimals $recompute_flag $pre_cache_flag --dataloader_seed $seed --dataset housing $always_eval_flag)
                         echo "${cmd[@]}":
                         setsid "${cmd[@]}" &
                         pid=$!
