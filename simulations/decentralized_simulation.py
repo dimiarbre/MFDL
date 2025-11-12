@@ -176,7 +176,7 @@ def run_decentralized_training(
                 models[i].parameters(),
                 C=C_local,
                 participation_interval=participations_intervals[i],
-                noise_seed=seed,
+                noise_seed=seed * num_nodes + i,
                 lr=lr,
                 device=device,
                 id=i,
