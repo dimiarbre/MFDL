@@ -63,7 +63,7 @@ export OPENBLAS_NUM_THREADS=1
 
 The privacy-utility tradeoffs are displayed using:
 ```bash
-python simulations/housing_plotter_multigraphs.py --dataset <dataset_name>
+python simulations/tradeoff_plotter.py --dataset <dataset_name>
 ```
 with `dataset_name` being either `housing` or `femnist`.
 This will generate the corresponding figures under `figures/`.
