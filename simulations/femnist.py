@@ -132,6 +132,7 @@ def load_femnist(
                 partition_by="writer_id", group_size=10
             )
         },
+        seed=seed,
     )
     train_dataloaders = []
     test_datasets = []
@@ -190,24 +191,86 @@ def main():
     lr = 0.5
     epochs = 100
 
-    # Load data
-    train_dataloaders, test_dataloader = load_femnist(
+    # Helper to extract per-node sample indices from train dataloaders
+    def extract_node_indices(train_dataloaders):
+        nodes_indices = []
+        for dl in train_dataloaders:
+            # each dl.dataset is a TensorDataset with tensors (images, labels)
+            try:
+                imgs = dl.dataset.tensors[0]
+            except Exception:
+                # If dataset is a Subset/ConcatDataset, try to access .dataset
+                imgs = dl.dataset.tensors[0]
+            # We don't have original global indices; construct a fingerprint using
+            # the tensor contents' hashes (fast approximate) to compare equality.
+            # For reproducibility check we compare shapes and a small hash.
+            flat = imgs.reshape(len(imgs), -1)
+            # compute a deterministic checksum per node
+            checksum = (
+                int(torch.sum(flat[0 : min(10, len(flat))]).item())
+                if len(flat) > 0
+                else 0
+            )
+            nodes_indices.append((len(imgs), checksum))
+        return nodes_indices
+
+    # Load data twice with the same seed and compare partitions
+    train_dataloaders_a, test_dataloader = load_femnist(
         total_nodes=total_nodes,
         nb_batches=nb_batches,
         test_batch_size=test_batch_size,
         seed=seed,
     )
 
+    train_dataloaders_b, _ = load_femnist(
+        total_nodes=total_nodes,
+        nb_batches=nb_batches,
+        test_batch_size=test_batch_size,
+        seed=seed,
+    )
+
+    nodes_a = extract_node_indices(train_dataloaders_a)
+    nodes_b = extract_node_indices(train_dataloaders_b)
+
+    print("Reproducibility check with same seed:")
+    same = True
+    for i, (a, b) in enumerate(zip(nodes_a, nodes_b)):
+        print(
+            f" Node {i}: runA -> samples={a[0]}, checksum={a[1]} | runB -> samples={b[0]}, checksum={b[1]}"
+        )
+        if a != b:
+            same = False
+    if same:
+        print(
+            "PASS: Two runs with the same seed produced identical partitions (by shape+checksum)."
+        )
+    else:
+        print("FAIL: Partitions differ between two runs with the same seed.")
+
+    # Also check that a different seed produces at least one different partition
+    other_seed = seed + 1
+    train_dataloaders_c, _ = load_femnist(
+        total_nodes=total_nodes,
+        nb_batches=nb_batches,
+        test_batch_size=test_batch_size,
+        seed=other_seed,
+    )
+    nodes_c = extract_node_indices(train_dataloaders_c)
+    diff_found = any(a != c for a, c in zip(nodes_a, nodes_c))
+    print(
+        f"Different-seed check (seed={seed} vs seed={other_seed}): {'DIFFER' if diff_found else 'ALL SAME'}"
+    )
+
     # Print info about the dataloaders
-    print(f"Number of train dataloaders (nodes): {len(train_dataloaders)}")
-    for i, dl in enumerate(train_dataloaders):
+    print(f"Number of train dataloaders (nodes): {len(train_dataloaders_a)}")
+    for i, dl in enumerate(train_dataloaders_a):
         print(f"Node {i}: {len(dl.dataset)} samples, {len(dl)} batches")
 
     print(
         f"Test set: {len(test_dataloader.dataset)} samples, {len(test_dataloader)} batches"
     )
 
-    total_train_samples = sum(len(dl.dataset) for dl in train_dataloaders)
+    total_train_samples = sum(len(dl.dataset) for dl in train_dataloaders_a)
     print(f"Total train samples: {total_train_samples}")
 
     # Instantiate model and print summary
@@ -226,7 +289,7 @@ def main():
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
 
     # Concatenate all train datasets and create a single shuffled DataLoader
-    all_train_dataset = ConcatDataset([dl.dataset for dl in train_dataloaders])
+    all_train_dataset = ConcatDataset([dl.dataset for dl in train_dataloaders_a])
     shuffled_train_dataloader = DataLoader(
         all_train_dataset, batch_size=2024, shuffle=True
     )
