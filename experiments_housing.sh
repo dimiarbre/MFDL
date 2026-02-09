@@ -27,6 +27,9 @@ recompute_flag=""
 pre_cache_flag=""
 skip_confirmation=false
 always_eval_flag=""
+correlation_window_flag=""
+num_batches=16
+hyperparameter_flag=""
 for arg in "$@"; do
     if [[ "$arg" == "--recompute" ]]; then
         recompute_flag="--recompute"
@@ -51,12 +54,25 @@ for arg in "$@"; do
     elif [[ "$arg" == "--graph=peertube" ]]; then
         nb_nodes_list=(271)
         graph_names=("peertube (connex component)")
+    elif [[ "$arg" == "--graph=misskey" ]]; then
+        nb_nodes_list=(919)
+        graph_names=("misskey")
+        correlation_window_flag="--nb_resets 2"
+        num_repetitions=(10)
+        num_batches=8 # Each node will have very little data, so too many batches is irrelevant.
+        lrs=(1.0) # Found through a separate hyperparameter search
+        mu_list=(1 10 5 7.5 12 11 13 14 15)
     elif [[ "$arg" == --threads=* ]]; then
         max_jobs="${arg#--threads=}"
     elif [[ "$arg" == "-y" ]]; then
         skip_confirmation=true
     elif [[ "$arg" == "--always_eval" ]]; then
         always_eval_flag="--always_eval"
+    elif [[ "$arg" == "--hyperparameters" ]]; then
+        hyperparameter_flag="--hyperparameters"
+        mu_list=(1)
+        seeds=(421)
+        lrs=(1 0.01 0.1 0.001 0.05 0.005 0.02 2 5 10 25 50 0.5)
     else
         echo "Error: Unrecognized argument '$arg'" >&2
         exit 1
@@ -92,6 +108,7 @@ echo "hyperparameter_flag: $hyperparameter_flag"
 echo "recompute_flag: $recompute_flag"
 echo "always_eval: $always_eval_flag"
 echo "pre_cache_flag: $pre_cache_flag"
+echo "correlation_window_flag: $correlation_window_flag"
 echo "Total configurations: $total_configs"
 echo "Proceed with these parameters? (y/n)"
 if ! $skip_confirmation; then
@@ -121,12 +138,16 @@ for num_repetition in "${num_repetitions[@]}"; do
                     for seed in "${seeds[@]}"; do
                         current_config=$((current_config + 1))
                         echo "Running configuration $current_config / $total_configs"
-                        cmd=(python simulations/decentralized_simulation.py --nb_nodes $nb_nodes --lr $lr --num_repetition $num_repetition --nb_batches 16 --mu $mu --graph_name "$graph_name" --use_optimals $recompute_flag $pre_cache_flag --dataloader_seed $seed --dataset housing $always_eval_flag)
+                        cmd=(python simulations/decentralized_simulation.py --nb_nodes $nb_nodes --lr $lr --num_repetition $num_repetition --nb_batches $num_batches --mu $mu --graph_name "$graph_name" --use_optimals $recompute_flag $pre_cache_flag --dataloader_seed $seed --dataset housing $always_eval_flag $correlation_window_flag $hyperparameter_flag)
                         echo "${cmd[@]}":
                         setsid "${cmd[@]}" &
                         pid=$!
                         pids+=($pid)
                         job_count=$((job_count + 1))
+                        if ((max_jobs >= 70)); # Avoid cache issues and errors when too many nodes try to load from the same cache.
+                        then
+                            sleep 2
+                        fi
                         if (( job_count >= max_jobs )); then
                             wait -n
                             job_count=$((job_count - 1))

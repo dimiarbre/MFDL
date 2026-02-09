@@ -105,7 +105,7 @@ def load_decentralized_simulation_data(
             df = df[df["method"] != method]
         if only_last_step:
             # For each dataloader_seed, select all rows with the maximum step
-            max_steps = df.groupby("dataloader_seed")["step"].transform("max")
+            max_steps = df["step"].max()
             df = df[df["step"] == max_steps].reset_index(drop=True)
         dfs.append(df)
         print(f"Loaded {len(df)} rows from {fname}")
@@ -264,9 +264,9 @@ def main():
     loss_attr = "test_loss"
     # Only load files with eps=0.5 and seed=421
     graph_names = [
-        "florentine",
-        "chain",
-        "hypercube",
+        # "florentine",
+        # "chain",
+        # "hypercube",
         "ego",
         "peertube (connex component)",
     ]
@@ -283,13 +283,14 @@ def main():
                 2.0,
                 5.0,
             ],  # Remember to put floats here (1.0,...)
-            "lr": [0.1],
+            # "lr": [0.1],
         }
         methods_to_remove = [
             "OPTIMAL_DL_MSG",
             "BSR_LOCAL",
             "BSR_BANDED_LOCAL",
             # "OPTIMAL_LOCAL",
+            "OPTIMAL_DL_LOCALCOR",
         ]
 
         df = load_decentralized_simulation_data(

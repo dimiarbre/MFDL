@@ -125,7 +125,16 @@ def plot_final_test_loss_vs_epsilon(
         print(f"Unnoised baseline: {baseline_points}")
 
     plt.xlabel("$\\epsilon$", fontsize=24)
-    plt.ylabel(f"Final {y_axis}", fontsize=24)
+
+    def format_axis_label(y_axis: str) -> str:
+        if y_axis == "test_loss":
+            return "Final Test Loss"
+        elif y_axis == "test_acc":
+            return "Final Test Accuracy"
+        else:
+            return f"Final {y_axis.replace('_', ' ').title()}"
+
+    plt.ylabel(format_axis_label(y_axis), fontsize=24)
     plt.legend(fontsize=15, frameon=True, facecolor="white", edgecolor="black")
     plt.tick_params(axis="both", which="major", labelsize=15)
     plt.grid()
@@ -138,41 +147,70 @@ def plot_final_test_loss_vs_epsilon(
     figpath = f"figures/{dataset_name}/final_{y_axis}_vs_epsilon_graph{graph_name}.pdf"
     plt.savefig(figpath)
     print(f"Saved fig to {figpath}")
+    plt.title(f"{graph_name} graph", fontsize=20)
     # plt.show()
 
 
-def main():
-    dataset_name = "housing"
-    y_axis = "test_loss"
-    graph_names = [
-        "florentine",
-        "peertube (connex component)",
-        "ego",
-        "chain",
-        "hypercube",
-    ]
+def main(dataset_name):
+    if dataset_name == "housing":
+        y_axis = "test_loss"
+        graph_names = [
+            "florentine",
+            "ego",
+            "peertube (connex component)",
+            "misskey",
+            # "chain",
+            # "hypercube",
+            # "star",
+        ]
+        mu_list = [0.1, 0.2, 0.5, 1.0, 2.0, 5.0]
+
+    elif dataset_name == "femnist":
+        y_axis = "test_acc"
+        graph_names = [
+            "florentine",
+            "ego",
+            # "peertube (connex component)",
+            # "misskey",
+            # "chain",
+            # "hypercube",
+            # "star",
+        ]
+        mu_list = [0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0]
+    else:
+        raise NotImplementedError(f"Unknown dataset {dataset_name}")
+
     for graph_name in graph_names:
         filters: Dict[str, List] = {
             "graph_name": [graph_name],
-            "num_passes": [20],
-            "mu": [
-                0.1,
-                0.2,
-                0.5,
-                1.0,
-                2.0,
-                5.0,
-                10.0,
-            ],  # Remember to put floats here (1.0,...)
+            # "num_passes": [20],
+            "mu": mu_list,
         }
         methods_to_remove = [
             "OPTIMAL_DL_MSG",
             "BSR_LOCAL",
             "BSR_BANDED_LOCAL",
-            # "OPTIMAL_LOCAL",
+            "OPTIMAL_LOCAL",
+            # "LDP",
+            # "ANTIPGD",
+            # "OPTIMAL_DL_MSG",
+            # "OPTIMAL_DL_POSTAVG",
+            "OPTIMAL_DL_LOCALCOR",
         ]
-        if "peertube" in graph_name:
+        if "peertube" in graph_name or "misskey" in graph_name:
             methods_to_remove.append("ANTIPGD")
+        if graph_name == "misskey":
+            filters["mu"] = [
+                # 1.0,
+                # 5.0,
+                7.5,
+                10.0,
+                12.0,
+                11.0,
+                13.0,
+                14.0,
+                15.0,
+            ]
         df = load_decentralized_simulation_data(
             base_dir=f"results/{dataset_name}",
             param_filters=filters,
@@ -202,6 +240,18 @@ def main():
 
 # Example usage:
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Plot final test loss vs epsilon for housing dataset"
+    )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="housing",
+        help="Dataset name (e.g., 'housing' or 'femnist')",
+    )
+    args = parser.parse_args()
     plt.rcParams["axes.linewidth"] = 2.0  # Axis lines
     plt.rcParams["grid.linewidth"] = 1.5  # Grid lines
-    main()
+    main(args.dataset)

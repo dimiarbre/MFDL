@@ -8,8 +8,8 @@
 # seeds=(421 422 423 424 425 426 427 428 429 430)
 
 num_repetitions=(20)
-# mu_list=(1.0 0.1 10.0 0.5 2.0 0.2 5.0)
-mu_list=(0.1 0.5 1.0 2.0 3.0 4.0 5.0 7.0 8.0 9.0 10.0 15.0 20.0) # Only use this for florentine?
+mu_list=(1.0 0.1 10.0 0.5 2.0 0.2 5.0)
+# mu_list=(0.1 0.5 1.0 2.0 3.0 4.0 5.0 7.0 8.0 9.0 10.0 15.0 20.0) # Only use this for florentine?
 # nb_nodes_list=(15)
 # graph_names=(florentine)
 
@@ -53,6 +53,7 @@ for arg in "$@"; do
     elif [[ "$arg" == "--graph=peertube" ]]; then
         nb_nodes_list=(271)
         graph_names=("peertube (connex component)")
+        lrs=(2.0)
     elif [[ "$arg" == --threads=* ]]; then
         max_jobs="${arg#--threads=}"
     elif [[ "$arg" == --run_with=slurm ]]; then
@@ -131,11 +132,22 @@ for num_repetition in "${num_repetitions[@]}"; do
                         for seed in "${seeds[@]}"; do
                             current_config=$((current_config + 1))
                             echo "Running configuration $current_config / $total_configs"
-                            cmd=(python -u simulations/decentralized_simulation.py --nb_nodes $nb_nodes --lr $lr --num_repetition $num_repetition --nb_batches 16 --mu $mu --graph_name "$graph_name" --use_optimals $hyperparameter_flag $recompute_flag $pre_cache_flag --dataloader_seed $seed --dataset femnist --nb_micro_batches $nb_micro_batches)
+                            cmd=(python -u simulations/decentralized_simulation.py --nb_nodes "$nb_nodes" --lr "$lr" --num_repetition "$num_repetition" --nb_batches 16 --mu "$mu" --graph_name "$graph_name" --use_optimals $hyperparameter_flag $recompute_flag $pre_cache_flag --dataloader_seed "$seed" --dataset femnist --nb_micro_batches "$nb_micro_batches")
                             if [[ "$run_with" == "slurm" ]]; then
-                                slurm_cmd=(sbatch ./jean_zay_launch.slurm "\"${cmd[@]}\"")
+                                # Build a shell-escaped single string so it can be safely passed
+                                # through wrappers that may perform additional shell expansions.
+                                cmd_str=""
+                                for a in "${cmd[@]}"; do
+                                    if [[ -z "$cmd_str" ]]; then
+                                        cmd_str=$(printf '%q' "$a")
+                                    else
+                                        cmd_str+=" "$(printf '%q' "$a")
+                                    fi
+                                done
+                                slurm_cmd=(sbatch ./jean_zay_launch.slurm "${cmd_str}")
                                 echo "${slurm_cmd[@]}"
-                                eval "${slurm_cmd[@]}"
+                                # Execute the sbatch invocation directly (no eval)
+                                "${slurm_cmd[@]}"
                             else
                                 echo "${cmd[@]}"
                                 setsid "${cmd[@]}" &

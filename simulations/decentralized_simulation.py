@@ -147,8 +147,12 @@ def run_decentralized_training(
     device: torch.device = torch.device("cpu"),
     seed: int = 421,
     always_eval: bool = False,
+    nb_resets_correlation: int = 1,
 ):
-    nb_resets = 0
+    nb_resets_dataloaders = 0
+    apply_lr_decay = isinstance(
+        loss_function, nn.CrossEntropyLoss
+    )  # For FEMNIST only for now
     num_nodes = graph.number_of_nodes()
     # Ensure all models start from the same initial weights by seeding before each model creation
     models = []
@@ -180,7 +184,7 @@ def run_decentralized_training(
                 lr=lr,
                 device=device,
                 id=i,
-                noise_multiplier=1 / mu,
+                noise_multiplier=nb_resets_correlation / mu,
                 batch_size=batch_size * micro_batches_per_step,
             )
         )
@@ -191,82 +195,94 @@ def run_decentralized_training(
     test_accs: list[list[float]] = [[] for _ in range(num_nodes)]
 
     step_times = []
-    for step in range(num_steps):
-        # Compute values for print
-        if step_times:
-            avg_time = sum(step_times) / len(step_times)
-            eta = avg_time * (num_steps - (step + 1))
-            step_time_str = f"{step_times[-1]:.2f}s"
-            avg_time_str = f"{avg_time:.2f}s/step"
-            eta_str = str(datetime.timedelta(seconds=int(eta)))
-        else:
-            step_time_str = "???"
-            avg_time_str = "???"
-            eta_str = "???"
-        print(
-            f"Step {step + 1:>{len(str(num_steps))}}/{num_steps} | "
-            f"Step time: {step_time_str} | Avg: {avg_time_str} | ETA: {eta_str}"
-        )
-
-        start_step_time = time.time()
-        has_reset = learning_step(
-            models,
-            loss_function=loss_function,
-            nb_micro_batches_per_step=micro_batches_per_step,
-            optimizers=optimizers,
-            data_iters=data_iters,
-            dataloaders=trainloaders,
-            device=device,
-        )
-        nb_resets += has_reset
-
-        # Apply learning rate decay every 10 epochs (when nb_resets reaches multiples of 10)
-        if has_reset and nb_resets in [5]:
+    total_steps = nb_resets_correlation * num_steps
+    for repeat in range(nb_resets_correlation):
+        print(f"Resetting correlation computation: {repeat+1}/{nb_resets_correlation}")
+        if repeat > 0:
+            # Re-initialize optimizers' noises
             for optimizer in optimizers:
-                for param_group in optimizer.param_groups:
-                    param_group["lr"] *= 0.1  # reduce LR by factor of 2
-            print(f"Learning rate decayed at step epoch {step}")
-
-        average_step(graph, models)
-        # Time evaluation of train and test losses
-        eval_start_time = time.time()
-        for node_id, model in enumerate(models):
-            # print(f"Evaluating trainset {node_id}")
-            loss_list, _ = evaluate_models(
-                [model], trainloaders[node_id], device, loss_function
-            )
-            loss = loss_list[0]
-            train_losses[node_id].append(loss)
-
-        # Compute the test loss only every test_eval_interval steps
-        if always_eval or (step + 1) % test_eval_interval == 0 or step == num_steps - 1:
-            print(f"Evaluating test set:")
-            step_test_losses, step_test_acc = evaluate_models(
-                models, testloader, device, loss_function, False, is_testset=True
-            )
-            eval_end_time = time.time()
-            eval_duration = eval_end_time - eval_start_time
+                optimizer.initialize_noises()
+        for step_current_reset in range(num_steps):
+            current_step = repeat * num_steps + step_current_reset
+            # Compute values for print
+            if step_times:
+                avg_time = sum(step_times) / len(step_times)
+                eta = avg_time * (total_steps - (current_step + 1))
+                step_time_str = f"{step_times[-1]:.2f}s"
+                avg_time_str = f"{avg_time:.2f}s/step"
+                eta_str = str(datetime.timedelta(seconds=int(eta)))
+            else:
+                step_time_str = "???"
+                avg_time_str = "???"
+                eta_str = "???"
             print(
-                f"Evaluation took {eval_duration:.2f} seconds. Average test acc: {np.mean(step_test_acc)*100:.2f}%, average test loss: {np.mean(step_test_losses):.4f}."
+                f"Step {current_step + 1:>{len(str(total_steps))}}/{total_steps} | "
+                f"Step time: {step_time_str} | Avg: {avg_time_str} | ETA: {eta_str}"
             )
-        else:
-            # Fill with None or previous value if you want to keep shape
-            step_test_losses = [np.NaN for _ in range(len(models))]
-            step_test_acc = [np.NaN for _ in range(len(models))]
 
-        for node_id, loss in enumerate(step_test_losses):
-            test_losses[node_id].append(loss)
-        for node_id, acc in enumerate(step_test_acc):
-            test_accs[node_id].append(acc)
-        end_step_time = time.time()
-        step_duration = end_step_time - start_step_time
-        step_times.append(step_duration)
+            start_step_time = time.time()
+            has_reset = learning_step(
+                models,
+                loss_function=loss_function,
+                nb_micro_batches_per_step=micro_batches_per_step,
+                optimizers=optimizers,
+                data_iters=data_iters,
+                dataloaders=trainloaders,
+                device=device,
+            )
+            nb_resets_dataloaders += has_reset
+
+            # Apply learning rate decay every 10 epochs (when nb_resets reaches multiples of 10)
+            if apply_lr_decay and has_reset and nb_resets_dataloaders in [5]:
+                for optimizer in optimizers:
+                    for param_group in optimizer.param_groups:
+                        param_group["lr"] *= 0.1  # reduce LR by factor of 2
+                print(f"Learning rate decayed at step epoch {current_step}")
+
+            average_step(graph, models)
+            # Time evaluation of train and test losses
+            eval_start_time = time.time()
+            for node_id, model in enumerate(models):
+                # print(f"Evaluating trainset {node_id}")
+                loss_list, _ = evaluate_models(
+                    [model], trainloaders[node_id], device, loss_function
+                )
+                loss = loss_list[0]
+                train_losses[node_id].append(loss)
+
+            # Compute the test loss only every test_eval_interval steps
+            if (
+                always_eval
+                or (current_step + 1) % test_eval_interval == 0
+                or current_step == num_steps - 1
+            ):
+                print(f"Evaluating test set:")
+                step_test_losses, step_test_acc = evaluate_models(
+                    models, testloader, device, loss_function, False, is_testset=True
+                )
+                eval_end_time = time.time()
+                eval_duration = eval_end_time - eval_start_time
+                print(
+                    f"Evaluation took {eval_duration:.2f} seconds. Average test acc: {np.mean(step_test_acc)*100:.2f}%, average test loss: {np.mean(step_test_losses):.4f}."
+                )
+            else:
+                # Fill with None or previous value if you want to keep shape
+                step_test_losses = [np.NaN for _ in range(len(models))]
+                step_test_acc = [np.NaN for _ in range(len(models))]
+
+            for node_id, loss in enumerate(step_test_losses):
+                test_losses[node_id].append(loss)
+            for node_id, acc in enumerate(step_test_acc):
+                test_accs[node_id].append(acc)
+            end_step_time = time.time()
+            step_duration = end_step_time - start_step_time
+            step_times.append(step_duration)
 
     # Losses of shape [nb_steps, nb_nodes]. Time is the 1st axis, nodes the second.
     res_test_losses = np.array(test_losses).T
     res_train_losses = np.array(train_losses).T
     res_test_acc = np.array(test_accs).T
-    print(f"Simulation needed {nb_resets} passes through the dataset")
+    print(f"Simulation needed {nb_resets_dataloaders} passes through the dataset")
     return models, res_test_losses, res_train_losses, res_test_acc
 
 
@@ -328,6 +344,7 @@ def run_simulation(
     lr: float,
     nb_batches,
     always_eval: bool,
+    nb_resets: int,
 ):
     np.random.seed(dataloader_seed)
     torch.manual_seed(dataloader_seed)
@@ -373,6 +390,7 @@ def run_simulation(
         device=device,
         seed=dataloader_seed,
         always_eval=always_eval,
+        nb_resets_correlation=nb_resets,
     )
     elapsed_time = time.time() - start_time
     print(f"{name}: Training took {elapsed_time:.2f} seconds.")
@@ -395,6 +413,7 @@ def run_experiment(
     pre_cache: bool = False,
     nonoise_only=False,
     always_eval: bool = False,
+    nb_resets: int = 1,
 ):
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
     # device_name = "cpu"
@@ -422,6 +441,9 @@ def run_experiment(
         f"seed{seed}_"
         f"steps{num_steps}_"  # Should be redundant
     )
+    if nb_resets > 1:
+        current_experiment_properties += f"nbresets{nb_resets}_"
+
     csv_path = f"results/{dataset_name}/simulation_{current_experiment_properties}.csv"
 
     if nonoise_only:
@@ -497,7 +519,13 @@ def run_experiment(
         configs_smaller = {
             name: config_generators[name]
             for name in config_generators
-            if name not in ["OPTIMAL_LOCAL", "OPTIMAL_DL_MSG", "OPTIMAL_DL_POSTAVG"]
+            if name
+            not in [
+                "OPTIMAL_LOCAL",
+                "OPTIMAL_DL_MSG",
+                "OPTIMAL_DL_POSTAVG",
+                "OPTIMAL_DL_LOCALCOR",
+            ]
         }
         config_generators = configs_smaller
     if pre_cache:
@@ -522,6 +550,7 @@ def run_experiment(
         "lr": lr,
         "nb_batches": nb_big_batches,
         "always_eval": always_eval,
+        "nb_resets": nb_resets,
     }
     run_simulation_partial = functools.partial(run_simulation, **run_sim_args)
 
@@ -645,6 +674,12 @@ def main():
         default=False,
         help="Always evaluate test set at each step, instead of every epoch.",
     )
+    parser.add_argument(
+        "--nb_resets",
+        type=int,
+        default=1,
+        help="Number of resets of correlation computation during training (default: 1)",
+    )
 
     args = parser.parse_args()
 
@@ -664,6 +699,7 @@ def main():
         nb_micro_batches=args.nb_micro_batches,
         nonoise_only=args.hyperparameters,
         always_eval=args.always_eval,
+        nb_resets=args.nb_resets,
     )
 
 

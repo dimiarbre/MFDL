@@ -42,7 +42,7 @@ For the paper, we used a 256 cores machine with 512GB of RAM, and required aroun
 
 **Step 1: Pre-cache optimal correlations**
 
-Run for each graph (`florentine`, `ego`, `peertube`):
+Run for each graph (`florentine`, `ego`, `peertube` and `misskey`):
 ```bash
 ./experiments_housing.sh --threads=1 --graph=<graph_name> --pre_cache
 ```
@@ -61,20 +61,17 @@ export OPENBLAS_NUM_THREADS=1
 
 **Step 3: Visualize results**
 
-```bash
-python simulations/housing_plotter.py
-```
-> Figures will be under `figures/housing/`.
-`epsilon` in their description is somewhat poorly named, and corresponds to $\frac{1}{\sigma}$.
-
 The privacy-utility tradeoffs are displayed using:
 ```bash
-python simulations/housing_plotter_multigraph.py
+python simulations/housing_plotter_multigraphs.py --dataset <dataset_name>
 ```
+with `dataset_name` being either `housing` or `femnist`.
+This will generate the corresponding figures under `figures/`.
 
-Run `simulations/epsilon_computation.py` to have the corresponding $\varepsilon$ used in the paper.
+### 3. Femnist Experiments
+Follow the same steps as housing, but replace `experiments_housing.sh` with `experiments_femnist.sh`, and only use the graphs `florentine` and `ego`.
 
-### 3. Optimal Workload Experiments
+### 4. Optimal Workload Experiments
 
 Run:
 ```bash
