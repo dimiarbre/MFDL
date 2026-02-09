@@ -69,6 +69,8 @@ GraphName = Literal[
     "peertube",
     "peertube (connex component)",
     "regular",
+    "lemmy",
+    "misskey",
 ]
 
 GRAPH_RENAME = {
@@ -184,6 +186,26 @@ def get_graph(name: GraphName, n: int, seed) -> nx.Graph:
                 only_largest_component=True,
             )
             G = nx.Graph(G)  # Convert to undirected graph
+        case "lemmy":
+            loader = GraphLoader()
+            G = loader.get_graph(
+                software="lemmy",
+                graph_type="federation",
+                index=1,
+                disable_tqdm=True,
+                only_largest_component=True,
+            )
+            G = nx.Graph(G)  # Convert to undirected graph
+        case "misskey":
+            loader = GraphLoader()
+            G = loader.get_graph(
+                software="misskey",
+                graph_type="federation",
+                index=1,
+                disable_tqdm=True,
+                only_largest_component=True,
+            )
+            G = nx.Graph(G)  # Convert to undirected graph
         case "chain":
             G = nx.path_graph(n)
         case "regular":
@@ -224,6 +246,8 @@ def graph_require_seed(graph_name: GraphName) -> bool:
         "peertube",
         "peertube (connex component)",
         "hypercube",
+        "lemmy",
+        "misskey",
     ]:
         return False
     elif graph_name in ["erdos", "expander", "regular"]:
@@ -329,7 +353,7 @@ def clean_csv_filename(filename: str) -> str:
 
 
 def main():
-    graph_name: GraphName = "peertube (connex component)"
+    graph_name: GraphName = "lemmy"
     G = get_graph(graph_name, 0, 0)
     print(G.number_of_nodes())
     max_degree = max(dict(G.degree()).values())
