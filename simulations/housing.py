@@ -56,8 +56,12 @@ def load_housing(
 
 if __name__ == "__main__":
     # Example usage
-    train_loaders, test_loader = load_housing(total_nodes=37)
-    for node in range(37):
+    nb_nodes = 919
+    nb_batches = 8
+    train_loaders, test_loader = load_housing(
+        total_nodes=nb_nodes, nb_batches=nb_batches
+    )
+    for node in range(nb_nodes):
         for batch_idx, (data, target) in enumerate(train_loaders[node]):
             print(
                 f"Node {node}, Batch {batch_idx}, Data shape: {data.shape}, Target shape: {target.shape}"
