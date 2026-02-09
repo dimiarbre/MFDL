@@ -6,10 +6,11 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import scienceplots
-import utils
-import workloads_generator
 from matplotlib.lines import Line2D
-from utils import GRAPH_RENAME, GraphName
+
+from . import utils
+from . import workloads_generator
+from .utils import GRAPH_RENAME, GraphName
 
 
 def epsilon_upper_bound(

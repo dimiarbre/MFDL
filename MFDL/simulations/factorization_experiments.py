@@ -3,13 +3,14 @@ import os
 import shutil
 from typing import Literal
 
-import factorizations_comparison
 import matplotlib.pyplot as plt
 import pandas as pd
 import scienceplots
 import seaborn as sns
 from scipy.stats import t
-from utils import (
+
+from . import factorizations_comparison
+from .utils import (
     METHOD_COLORS,
     METHOD_DISPLAY_NAMES,
     METHOD_MARKERS,

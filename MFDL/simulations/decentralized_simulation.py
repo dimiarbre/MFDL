@@ -10,19 +10,20 @@ import warnings
 import networkx as nx
 import numpy as np
 import pandas as pd
-import plotters
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data as data
-import workloads_generator
-from femnist import femnist_model_initializer, load_femnist
-from housing import housing_model_initializer, load_housing
-from mfdl_optimizer import MFDLSGD, MFDLSGD_Lazy
 from opacus import GradSampleModule
 from sklearn.metrics import mean_squared_error
-from utils import GraphName, get_communication_matrix, get_graph, time_execution
-from workloads_generator import compute_sensitivity
+
+from . import plotters
+from . import workloads_generator
+from .femnist import femnist_model_initializer, load_femnist
+from .housing import housing_model_initializer, load_housing
+from .mfdl_optimizer import MFDLSGD, MFDLSGD_Lazy
+from .utils import GraphName, get_communication_matrix, get_graph, time_execution
+from .workloads_generator import compute_sensitivity
 
 # Remove warnings for Housing that should be safe, raised because of Opacus + Housing
 warnings.filterwarnings(

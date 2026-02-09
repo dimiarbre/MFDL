@@ -4,12 +4,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.utils.data as data
-from data_utils import make_batch_sampler_indices
 from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import GroupedNaturalIdPartitioner
 from sklearn.model_selection import train_test_split
 from torch.utils.data import ConcatDataset, DataLoader
 from torchvision import datasets, transforms
+
+from .data_utils import make_batch_sampler_indices
 
 
 # Simple CNN for FEMNIST (28x28 grayscale images, 62 classes)

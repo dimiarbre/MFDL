@@ -2,7 +2,7 @@ Bootstrap: docker
 From: ubuntu:22.04
 
 %files
-    requirement.txt /opt/context/requirement.txt
+    . /opt/context/
 
 %post
     export DEBIAN_FRONTEND=noninteractive
@@ -47,16 +47,21 @@ From: ubuntu:22.04
     rm -rf /usr/local/lib/python3.12/site-packages/torch*
     rm -rf /usr/local/lib/python3.12/site-packages/torchvision*
 
-    # Install requirements
-    /usr/local/bin/python3.12 -m pip install -r /opt/context/requirement.txt
+    # Copy the entire MFDL package
+    mkdir -p /MFDL
+    cp -r /opt/context/* /MFDL/
+    cd /MFDL
+    
+    # Install the MFDL package in development mode
+    /usr/local/bin/python3.12 -m pip install -e .
 
     # Clean up build files
     rm -rf "$WORKDIR"
     ln -sf /usr/local/bin/python3.12 /usr/local/bin/python
 
 %runscript
-    # Bind the current directory for dynamic access
-    export PYTHONPATH=$PWD
+    # Change to the MFDL directory
+    cd /MFDL
     exec "$@"
 
 %labels

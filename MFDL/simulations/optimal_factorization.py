@@ -11,7 +11,7 @@ from typing import Optional
 
 import numpy as np
 import scipy
-import utils
+from . import utils
 
 
 def initialize_X_to_normalized_identity(

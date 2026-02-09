@@ -7,11 +7,12 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import pandas as pd
-import plotters
 import scienceplots
-import utils
-import workloads_generator
-from utils import GraphName
+
+from . import plotters
+from . import utils
+from . import workloads_generator
+from .utils import GraphName
 
 FactorizationName = Literal[
     "LDP",

@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "MFDL"
+version = "0.1.0"
+description = "Matrix Factorization for Decentralized Learning"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    {name = "MFDL Team"}
+]
+dependencies = [
+    "torch>=2.8.0",
+    "torchvision",
+    "scikit-learn",
+    "networkx",
+    "matplotlib",
+    "seaborn",
+    "numpy",
+    "pytest",
+    "pytest-benchmark",
+    "opacus",
+    "SciencePlots",
+    "fedivertex",
+    "flwr-datasets[vision]",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-benchmark"]
+
+[tool.setuptools]
+packages = {find = {}}
+

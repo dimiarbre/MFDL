@@ -5,9 +5,10 @@ from typing import Dict, List, Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from plotters import plot_housing_results
 from scipy.stats import t
-from utils import (
+
+from .plotters import plot_housing_results
+from .utils import (
     METHOD_COLORS,
     METHOD_DISPLAY_NAMES,
     METHOD_LINESTYLES,

@@ -14,7 +14,14 @@ Matrix Factorization for Decentralized Learning (MFDL) is a Python package for s
 
 ## Installation
 
-1. Install dependencies:
+1. Install the package in development mode (recommended):
+    ```bash
+    pip install -e .
+    ```
+
+   This will automatically install all dependencies from `requirement.txt` and make the `MFDL` package importable.
+
+   Alternatively, install dependencies separately:
     ```bash
     pip install -r requirement.txt
     ```
@@ -30,7 +37,7 @@ Be warned this may take time and can be expensive in terms of memory.
 
 Run:
 ```bash
-python simulations/muffliato_accounting.py
+python MFDL/simulations/muffliato_accounting.py
 ```
 
 ### 2. Housing Experiments
@@ -63,7 +70,7 @@ export OPENBLAS_NUM_THREADS=1
 
 The privacy-utility tradeoffs are displayed using:
 ```bash
-python simulations/tradeoff_plotter.py --dataset <dataset_name>
+python MFDL/simulations/tradeoff_plotter.py --dataset <dataset_name>
 ```
 with `dataset_name` being either `housing` or `femnist`.
 This will generate the corresponding figures under `figures/`.
@@ -75,7 +82,7 @@ Follow the same steps as housing, but replace `experiments_housing.sh` with `exp
 
 Run:
 ```bash
-python simulations/factorization_experiments.py
+python MFDL/simulations/factorization_experiments.py
 ```
 
 Resulting figures are stored under `figures/factorization_simulation/`. 

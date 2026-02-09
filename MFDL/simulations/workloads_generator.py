@@ -2,11 +2,12 @@ import os
 from typing import Optional
 
 import numpy as np
-import optimal_factorization
 import torch
-import utils
 from scipy.linalg import toeplitz
-from utils import graph_require_seed, profile_memory_usage
+
+from . import optimal_factorization
+from . import utils
+from .utils import graph_require_seed, profile_memory_usage
 
 
 def get_commutation_matrix(nb_nodes, nb_iterations):

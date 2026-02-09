@@ -5,10 +5,11 @@ from typing import Dict, List, Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from epsilon_computation import solve_epsilon
-from housing_plotter import *
-from plotters import plot_housing_results
-from utils import METHOD_COLORS, METHOD_DISPLAY_NAMES, METHOD_LINESTYLES
+
+from .epsilon_computation import solve_epsilon
+from .housing_plotter import *
+from .plotters import plot_housing_results
+from .utils import METHOD_COLORS, METHOD_DISPLAY_NAMES, METHOD_LINESTYLES
 
 
 def plot_final_test_loss_vs_epsilon(

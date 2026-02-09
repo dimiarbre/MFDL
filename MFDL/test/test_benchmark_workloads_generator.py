@@ -4,37 +4,19 @@ import sys
 import numpy as np
 import pytest
 
-try:
-    from simulations import utils as sim_utils
-    from simulations.workloads_generator import (
-        MF_ANTIPGD,
-        MF_LDP,
-        MF_OPTIMAL_DL,
-        BSR_local_factorization,
-        MF_OPTIMAL_DL_variednode,
-        MF_OPTIMAL_local,
-        build_DL_workload,
-        build_DL_workload_old,
-        build_participation_matrix,
-        get_commutation_matrix,
-    )
-except:
-    sys.path.insert(
-        0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../simulations/"))
-    )
-    import utils as sim_utils
-    from workloads_generator import (
-        MF_ANTIPGD,
-        MF_LDP,
-        MF_OPTIMAL_DL,
-        BSR_local_factorization,
-        MF_OPTIMAL_DL_variednode,
-        MF_OPTIMAL_local,
-        build_DL_workload,
-        build_DL_workload_old,
-        build_participation_matrix,
-        get_commutation_matrix,
-    )
+from MFDL.simulations import utils as sim_utils
+from MFDL.simulations.workloads_generator import (
+    MF_ANTIPGD,
+    MF_LDP,
+    MF_OPTIMAL_DL,
+    BSR_local_factorization,
+    MF_OPTIMAL_DL_variednode,
+    MF_OPTIMAL_local,
+    build_DL_workload,
+    build_DL_workload_old,
+    build_participation_matrix,
+    get_commutation_matrix,
+)
 
 # Require pytest-benchmark plugin for these benchmarks; skip tests if it's not available.
 pytest.importorskip("pytest_benchmark")

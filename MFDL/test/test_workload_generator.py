@@ -6,24 +6,12 @@ import time
 import numpy as np
 import pytest
 
-try:
-    from simulations.workloads_generator import (
-        build_DL_workload,
-        build_DL_workload_old,
-        get_commutation_matrix,
-        get_commutation_reindexing,
-    )
-except ModuleNotFoundError:
-    # Trick to resolve imports
-    sys.path.insert(
-        0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../simulations/"))
-    )
-    from workloads_generator import (
-        build_DL_workload,
-        build_DL_workload_old,
-        get_commutation_matrix,
-        get_commutation_reindexing,
-    )
+from MFDL.simulations.workloads_generator import (
+    build_DL_workload,
+    build_DL_workload_old,
+    get_commutation_matrix,
+    get_commutation_reindexing,
+)
 
 
 def test_get_pi_zero_nodes():

@@ -2,10 +2,11 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as np
-import plotters
-import utils
-import workloads_generator
 from matplotlib.colors import ListedColormap, Normalize
+
+from . import plotters
+from . import utils
+from . import workloads_generator
 
 
 def plot_correlations(

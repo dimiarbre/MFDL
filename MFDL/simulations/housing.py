@@ -2,10 +2,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.utils.data as data
-from data_utils import split_data
 from sklearn.datasets import fetch_california_housing
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+
+from .data_utils import split_data
 
 
 # Simple MLP for regression
