@@ -1,12 +1,12 @@
 import os
 from typing import Optional
+from warnings import warn
 
 import numpy as np
 import torch
 from scipy.linalg import toeplitz
 
-from . import optimal_factorization
-from . import utils
+from . import optimal_factorization, utils
 from .utils import graph_require_seed, profile_memory_usage
 
 
@@ -15,6 +15,10 @@ def get_commutation_matrix(nb_nodes, nb_iterations):
     Generates a coomutation matrix S_{nb_nodes, nb_iterations} that goes from a spatial repartition (n*T) to a temporal repartion (T*n).
     It returns a matrix S. If X is a vector composed of nb_nodes blocks of nb_steps values, then S @ X is a permutation of this vector composed of nb_steps blocks of nb_nodes values
     """
+    warn(
+        "get_commutation_matrix is inefficient and should be replaced by get_commutation_reindexing, which gives the same result with a simple reindexing. See tests/test_workload_generator.py and the documentation of get_commutation_reindexing for examples of how to use the new function.",
+        category=DeprecationWarning,
+    )
     # TODO: This needs to be redone for optimization purposes. As it stands, this instantiates a big matrix, and we run W @ pi down the line. Since it is a permutation, we could just have a reindexing instead. For instance, with 3 nodes and 3 iterations, we would have something like  pi = [0,3,6,1,4,7,2,5,8], and just compute W[pi]. This would be much more efficient in memory.
     if nb_nodes == 0 or nb_iterations == 0:
         raise ValueError("0-dimensional permutation is not allowed")
@@ -729,13 +733,13 @@ def SR_local_factorization(nb_iterations):
 
 
 def build_projection_workload(
-    communication_matrix: np.ndarray, attacker_node: int, nb_steps: int
+    communication_matrix: np.ndarray, attacker_node: int | list[int], nb_steps: int
 ) -> np.ndarray:
     """Builds P(attacker_node), the projection workload. Should be used with tilde(W) in the paper, or P @ build_local_dl_workload(.., initial_power=0).
 
     Args:
         communication_matrix (np.ndarray): The communication matrix
-        attacker_node (int): The id of the attacking node
+        attacker_node (int or list[int]): The id(s) of the attacking node(s)
         nb_steps (int): Number of steps, to know how many repetitions of the workload will be needed.
 
     Returns:
@@ -745,8 +749,13 @@ def build_projection_workload(
 
     # First, create a projection matrix for a given communication matrix
     projection_lines = []
+    if isinstance(attacker_node, int):
+        attacker_nodes = [attacker_node]
+    else:
+        attacker_nodes = attacker_node
+
     for i in range(n):
-        if communication_matrix[attacker_node, i] > 0:
+        if any(communication_matrix[attacker, i] > 0 for attacker in attacker_nodes):
             projection_line = np.zeros((n))
             projection_line[i] = 1
             projection_lines.append(projection_line)
