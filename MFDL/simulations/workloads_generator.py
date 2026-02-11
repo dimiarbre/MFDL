@@ -733,7 +733,10 @@ def SR_local_factorization(nb_iterations):
 
 
 def build_projection_workload(
-    communication_matrix: np.ndarray, attacker_node: int | list[int], nb_steps: int
+    communication_matrix: np.ndarray,
+    attacker_node: int | list[int],
+    nb_steps: int,
+    observe_own=True,
 ) -> np.ndarray:
     """Builds P(attacker_node), the projection workload. Should be used with tilde(W) in the paper, or P @ build_local_dl_workload(.., initial_power=0).
 
@@ -756,6 +759,8 @@ def build_projection_workload(
 
     for i in range(n):
         if any(communication_matrix[attacker, i] > 0 for attacker in attacker_nodes):
+            if not observe_own and i in attacker_nodes:
+                continue
             projection_line = np.zeros((n))
             projection_line[i] = 1
             projection_lines.append(projection_line)
