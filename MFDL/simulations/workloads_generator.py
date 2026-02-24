@@ -17,7 +17,8 @@ def get_commutation_matrix(nb_nodes, nb_iterations):
     """
     warn(
         "get_commutation_matrix is inefficient and should be replaced by get_commutation_reindexing, which gives the same result with a simple reindexing. See tests/test_workload_generator.py and the documentation of get_commutation_reindexing for examples of how to use the new function.",
-        category=DeprecationWarning,
+        category=FutureWarning,
+        stacklevel=2,
     )
     # TODO: This needs to be redone for optimization purposes. As it stands, this instantiates a big matrix, and we run W @ pi down the line. Since it is a permutation, we could just have a reindexing instead. For instance, with 3 nodes and 3 iterations, we would have something like  pi = [0,3,6,1,4,7,2,5,8], and just compute W[pi]. This would be much more efficient in memory.
     if nb_nodes == 0 or nb_iterations == 0:
