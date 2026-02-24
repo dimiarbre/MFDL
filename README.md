@@ -48,6 +48,8 @@ To regenerate all workloads from scratch, delete the `cache/` directory and reru
 Be warned this may take time and can be expensive in terms of memory.
 
 ## Reproducing experiments
+We provide steps to reproduce the figures in the paper. Some of those reproduction steps may have changed, we advise to either raise an issue, or look at the release "Unified Privacy guarantees for Decentralized Learning Via Matrix Factorization - Camera ready" which corresponds to the state of the project at the time of publication.
+
 ### 1. Accounting Experiments (Figure 2)
 
 Run:
