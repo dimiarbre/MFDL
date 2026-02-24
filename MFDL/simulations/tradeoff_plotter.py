@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from .epsilon_computation import solve_epsilon
-from .housing_plotter import *
+from .housing_plotter import load_decentralized_simulation_data
 from .plotters import plot_housing_results
 from .utils import METHOD_COLORS, METHOD_DISPLAY_NAMES, METHOD_LINESTYLES
 

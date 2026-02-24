@@ -138,7 +138,7 @@ for num_repetition in "${num_repetitions[@]}"; do
                     for seed in "${seeds[@]}"; do
                         current_config=$((current_config + 1))
                         echo "Running configuration $current_config / $total_configs"
-                        cmd=(python MFDL/simulations/decentralized_simulation.py --nb_nodes $nb_nodes --lr $lr --num_repetition $num_repetition --nb_batches $num_batches --mu $mu --graph_name "$graph_name" --use_optimals $recompute_flag $pre_cache_flag --dataloader_seed $seed --dataset housing $always_eval_flag $correlation_window_flag $hyperparameter_flag)
+                        cmd=(python -m MFDL.simulations.decentralized_simulation --nb_nodes $nb_nodes --lr $lr --num_repetition $num_repetition --nb_batches $num_batches --mu $mu --graph_name "$graph_name" --use_optimals $recompute_flag $pre_cache_flag --dataloader_seed $seed --dataset housing $always_eval_flag $correlation_window_flag $hyperparameter_flag)
                         echo "${cmd[@]}":
                         setsid "${cmd[@]}" &
                         pid=$!

@@ -1,7 +1,8 @@
 import numpy as np
 import torch
 from torch.optim import Optimizer
-from workloads_generator import compute_sensitivity
+
+from .workloads_generator import compute_sensitivity
 
 
 class MFDLSGD(Optimizer):
